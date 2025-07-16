@@ -3,7 +3,10 @@
         "demo": "ts-node scripts/quick-demo.ts",
         "demo:full": "ts-node scripts/demo.ts",
         "demo:interact": "ts-node scripts/interact.ts",
-        "demo:local": "NETWORK=localnet ts-node scripts/demo.ts"
+        "demo:local": "NETWORK=localnet ts-node scripts/demo.ts",
+        "demo:wallet": "ts-node scripts/demo-existing-wallet.ts",
+        "create-test": "ts-node scripts/create-test-data.ts",
+        "analytics": "ts-node scripts/analytics.ts"
     },
     "devDependencies": {
         "ts-node": "^10.9.2",

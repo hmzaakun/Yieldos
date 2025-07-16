@@ -66,7 +66,7 @@ class YieldosInteraction {
         // Chargement du programme
         const idl = require("../target/idl/contracts.json");
         const programId = new PublicKey(PROGRAM_ID);
-        this.program = new Program(idl, this.provider, programId);
+        this.program = new Program(idl, this.provider, programId as any);
 
         // Génération des comptes de test
         this.admin = Keypair.generate();
