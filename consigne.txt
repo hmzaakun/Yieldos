@@ -1,0 +1,23 @@
+Livrables :
+Code source du smart contract et de l’application
+Documentation technique expliquant l’architecture et le fonctionnement du projet
+Présentation finale avec démonstration de la dApp
+Critères d’Évaluation :
+Fonctionnalité et robustesse du smart contract
+Expérience utilisateur et ergonomie de la dApp
+Sécurité et bonnes pratiques de développement
+Innovation et originalité dans la gestion et le trading du Yield
+Le smart contract doit gérer :
+• Les dépôts d’actifs par les utilisateurs dans un protocole DeFi (staking/lending).
+• L’émission de Yield Tokens (YT) correspondant au rendement accumulé.
+• La gestion du rachat (redeem) des YT contre les récompenses sous-jacentes.
+• L’échange des YT sur une place de marché décentralisée.
+Utilisations de Rust avec le framework Anchor pour faciliter le développement.
+
+Objectif du projet (à la fin du projet les étudiants sauront réaliser un...)
+Les étudiants devront concevoir et développer une dApp qui permet aux utilisateurs de :
+Déposer des actifs dans un protocole générateur de Yield (ex : staking, lending).
+Tokeniser le rendement généré, en émettant un "Yield Token" représentatif des gains accumulés.
+Échanger ces tokens sur une place de marché intégrée, permettant aux utilisateurs d’acheter ou de
+vendre leur Yield tokenisé avant même son retrait final.
+Gérer la maturité du Yield Token, avec des options de rachat ou de réclamation du sous-jacent.
