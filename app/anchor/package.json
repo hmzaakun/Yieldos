@@ -1,0 +1,10 @@
+{
+    "scripts": {
+        "demo": "ts-node scripts/interact.ts",
+        "demo:local": "NETWORK=localnet ts-node scripts/interact.ts"
+    },
+    "devDependencies": {
+        "ts-node": "^10.9.2",
+        "typescript": "^5.0.0"
+    }
+}
