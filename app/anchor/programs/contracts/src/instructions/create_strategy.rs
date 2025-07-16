@@ -101,7 +101,7 @@ pub fn handle_initialize_protocol(ctx: Context<InitializeProtocol>) -> Result<()
     let counter = &mut ctx.accounts.strategy_counter;
     counter.count = 0;
 
-    msg!("SolaYield protocol initialized");
+    msg!("Yieldos protocol initialized");
     Ok(())
 }
 

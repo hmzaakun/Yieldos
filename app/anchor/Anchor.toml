@@ -6,14 +6,22 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-counter = "FqzkXZdwYjurnUKetJCAvaUw5WAqbwzU6gZEwydeEfqS"
+contracts = "5S3gna7dtmoGD1M6AqRLRZvP7MUDHp8K8pkXRMovsrR9"
+
+[programs.devnet]
+contracts = "5S3gna7dtmoGD1M6AqRLRZvP7MUDHp8K8pkXRMovsrR9"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "localnet"
-wallet = "~/.config/solana/id.json"
+cluster = "devnet"
+wallet = "~/.config/solana/yieldos-devnet.json"
+
+[test]
+startup_wait = 5000
+shutdown_wait = 2000
+upgradeable = false
 
 [scripts]
 test = "../node_modules/.bin/jest --preset ts-jest"

@@ -8,10 +8,10 @@ pub struct Strategy {
     /// The underlying token that users deposit (SOL, USDC, etc.)
     pub underlying_token: Pubkey,
     
-    /// The yield token mint for this strategy (ySolana, yUSDC, etc.)
+    /// The yield token mint for this strategy (yYieldos, yUSDC, etc.)
     pub yield_token_mint: Pubkey,
     
-    /// Strategy name (e.g., "Solana Staking Strategy")
+    /// Strategy name (e.g., "Yieldos Staking Strategy")
     pub name: String,
     
     /// Annual Percentage Yield in basis points (1000 = 10.00%)

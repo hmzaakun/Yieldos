@@ -2,7 +2,7 @@
 
 use anchor_lang::prelude::*;
 
-declare_id!("BCz6K4XSaycH954PhZPPmwuistSyJP5p5Biya7frA2Az");
+declare_id!("5S3gna7dtmoGD1M6AqRLRZvP7MUDHp8K8pkXRMovsrR9");
 
 pub mod instructions;
 pub mod state;
@@ -14,7 +14,7 @@ use instructions::*;
 pub mod contracts {
     use super::*;
 
-    /// Initialize the SolaYield protocol
+    /// Initialize the Yieldos protocol
     pub fn initialize_protocol(ctx: Context<InitializeProtocol>) -> Result<()> {
         instructions::handle_initialize_protocol(ctx)
     }
