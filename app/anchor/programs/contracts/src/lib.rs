@@ -2,7 +2,7 @@
 
 use anchor_lang::prelude::*;
 
-declare_id!("5xn2SZKTMMYdUsgLHChWyUQQnG2Wgs3MbGAZaykVmVDP");
+declare_id!("9dEwdrEo7Tu9eTW3S3opbJa1fyyppRGPpdn8CqBxJX27");
 
 pub mod instructions;
 pub mod state;
@@ -26,7 +26,7 @@ pub mod contracts {
         apy_basis_points: u16,
         strategy_id: u64,
     ) -> Result<()> {
-        instructions::handle_create_strategy(ctx, name, apy_basis_points as u64, strategy_id)
+        instructions::handle_create_strategy(ctx, name, apy_basis_points, strategy_id)
     }
 
     /// Deposit tokens into a specific strategy

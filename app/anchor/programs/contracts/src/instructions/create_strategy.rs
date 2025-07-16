@@ -4,7 +4,7 @@ use anchor_spl::token::{Mint, Token};
 use crate::state::{strategy::Strategy, strategy::StrategyCounter};
 
 #[derive(Accounts)]
-#[instruction(name: String, apy: u64, strategy_id: u64)]
+#[instruction(name: String, apy_basis_points: u16, strategy_id: u64)]
 pub struct CreateStrategy<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
@@ -46,11 +46,11 @@ pub struct CreateStrategy<'info> {
 pub fn handle_create_strategy(
     ctx: Context<CreateStrategy>,
     name: String,
-    apy: u64,
+    apy_basis_points: u16,
     strategy_id: u64,
 ) -> Result<()> {
     require!(name.len() <= 64, CustomError::NameTooLong);
-    require!(apy <= 50000, CustomError::ApyTooHigh); // Max 500% APY
+    require!(apy_basis_points <= 50000, CustomError::ApyTooHigh); // Max 500% APY
 
     let strategy = &mut ctx.accounts.strategy;
     let counter = &mut ctx.accounts.strategy_counter;
@@ -59,7 +59,7 @@ pub fn handle_create_strategy(
     strategy.underlying_token = ctx.accounts.underlying_token.key();
     strategy.yield_token_mint = ctx.accounts.yield_token_mint.key();
     strategy.name = name.clone();
-    strategy.apy = apy;
+    strategy.apy = apy_basis_points as u64;
     strategy.total_deposits = 0;
     strategy.is_active = true;
     strategy.created_at = Clock::get()?.unix_timestamp;
@@ -73,7 +73,7 @@ pub fn handle_create_strategy(
         "Strategy '{}' created with ID {} and APY {}%",
         name,
         strategy_id,
-        apy as f64 / 100.0
+        apy_basis_points as f64 / 100.0
     );
 
     Ok(())

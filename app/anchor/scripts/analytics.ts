@@ -85,10 +85,10 @@ async function analyzeYieldos() {
         }
 
         // Analyser chaque stratégie
-        for (let i = 0; i < totalStrategies; i++) {
+        for (let i = 1; i <= totalStrategies; i++) {
             try {
                 const [strategyPda] = PublicKey.findProgramAddressSync(
-                    [Buffer.from("strategy"), Buffer.from(i.toString())],
+                    [Buffer.from("strategy"), new anchor.BN(i).toArrayLike(Buffer, "le", 8)],
                     program.programId
                 );
 
@@ -133,11 +133,17 @@ async function analyzeYieldos() {
 
     for (const strategy of strategies) {
         try {
+            // Recalculer le strategy PDA correct
+            const [actualStrategyPda] = PublicKey.findProgramAddressSync(
+                [Buffer.from("strategy"), new anchor.BN(strategy.id).toArrayLike(Buffer, "le", 8)],
+                program.programId
+            );
+
             const [userPositionPda] = PublicKey.findProgramAddressSync(
                 [
                     Buffer.from("user_position"),
                     wallet.toBuffer(),
-                    Buffer.from(strategy.id.toString()),
+                    actualStrategyPda.toBuffer(),
                 ],
                 program.programId
             );
@@ -171,15 +177,14 @@ async function analyzeYieldos() {
 
             // Vérifier le solde des YT tokens dans le wallet
             try {
-                const ytTokenAccount = await getOrCreateAssociatedTokenAccount(
-                    connection,
-                    Keypair.generate(), // Dummy keypair pour la lecture
+                // Calculer l'adresse du compte token associé
+                const { getAssociatedTokenAddress } = await import("@solana/spl-token");
+                const associatedTokenAddress = await getAssociatedTokenAddress(
                     new PublicKey(strategy.ytMint),
-                    wallet,
-                    false
+                    wallet
                 );
 
-                const accountInfo = await getAccount(connection, ytTokenAccount.address);
+                const accountInfo = await getAccount(connection, associatedTokenAddress);
                 const walletYtBalance = Number(accountInfo.amount) / 1e6;
 
                 console.log(`   💳 YT dans votre wallet: ${walletYtBalance.toFixed(2)} YT`);
