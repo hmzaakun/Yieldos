@@ -97,25 +97,28 @@ export function StrategyCard({ strategyId, strategyData }: {
     strategyData?: { pubkey: PublicKey, account: any, strategyId: number }
 }) {
     const wallet = useWallet()
-    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements, getUserYieldTokenBalance } = useYieldosStrategy({ strategyId })
+    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements, getUserYieldTokenBalance, getUserPosition } = useYieldosStrategy({ strategyId })
     const [depositAmount, setDepositAmount] = useState('')
     const [withdrawAmount, setWithdrawAmount] = useState('')
     const [tokenInfo, setTokenInfo] = useState<any>(null)
     const [yieldTokenBalance, setYieldTokenBalance] = useState<number>(0)
+    const [userPosition, setUserPosition] = useState<any>(null)
 
     // Charger les informations sur les tokens requis (avec debouncing pour éviter le rate limiting)
     useEffect(() => {
-        if (!wallet.connected || !getTokenRequirements || !getUserYieldTokenBalance) return
+        if (!wallet.connected || !getTokenRequirements || !getUserYieldTokenBalance || !getUserPosition) return
 
         // Debounce pour éviter trop de requêtes
         const timeoutId = setTimeout(async () => {
             try {
-                const [info, balance] = await Promise.all([
+                const [info, balance, position] = await Promise.all([
                     getTokenRequirements(),
-                    getUserYieldTokenBalance()
+                    getUserYieldTokenBalance(),
+                    getUserPosition()
                 ])
                 setTokenInfo(info)
                 setYieldTokenBalance(balance)
+                setUserPosition(position)
             } catch (error) {
                 console.warn('Failed to load token info:', error)
             }
@@ -287,10 +290,14 @@ export function StrategyCard({ strategyId, strategyData }: {
             await withdrawMutation.mutateAsync({ amount: Number(withdrawAmount) })
             setWithdrawAmount('')
 
-            // Recharger le solde après le withdraw
-            if (getUserYieldTokenBalance) {
-                const balance = await getUserYieldTokenBalance()
+            // Recharger les données après le withdraw
+            if (getUserYieldTokenBalance && getUserPosition) {
+                const [balance, position] = await Promise.all([
+                    getUserYieldTokenBalance(),
+                    getUserPosition()
+                ])
                 setYieldTokenBalance(balance)
+                setUserPosition(position)
             }
         } catch (error) {
             console.error('Withdraw failed:', error)
@@ -299,17 +306,22 @@ export function StrategyCard({ strategyId, strategyData }: {
 
     const handleWithdrawAll = async () => {
         try {
-            // Récupérer le solde le plus récent
-            const currentBalance = await getUserYieldTokenBalance()
+            // Récupérer la position utilisateur la plus récente
+            const currentPosition = await getUserPosition()
 
-            if (currentBalance <= 0) {
-                alert('No yield tokens to withdraw from this strategy.')
+            if (!currentPosition || currentPosition.deposited_amount <= 0) {
+                alert('No deposited tokens to withdraw from this strategy.')
                 return
             }
 
-            await withdrawMutation.mutateAsync({ amount: currentBalance })
+            console.log('Withdrawing all deposited tokens:', {
+                deposited_amount: currentPosition.deposited_amount,
+                yield_tokens_minted: currentPosition.yield_tokens_minted
+            })
+
+            await withdrawMutation.mutateAsync({ amount: currentPosition.deposited_amount })
             setWithdrawAmount('')
-            setYieldTokenBalance(0)
+            setUserPosition(null)
         } catch (error) {
             console.error('Withdraw all failed:', error)
         }
@@ -379,10 +391,15 @@ export function StrategyCard({ strategyId, strategyData }: {
                 </div>
 
                 <div className="space-y-2">
-                    {/* Affichage du solde de yield tokens */}
-                    {yieldTokenBalance > 0 && (
-                        <div className="p-2 bg-green-50 rounded text-xs text-green-700 dark:bg-green-950 dark:text-green-300">
-                            💰 Yield tokens: {(yieldTokenBalance / 1e9).toFixed(4)}
+                    {/* Affichage des soldes */}
+                    {(userPosition?.deposited_amount > 0 || yieldTokenBalance > 0) && (
+                        <div className="p-2 bg-green-50 rounded text-xs text-green-700 dark:bg-green-950 dark:text-green-300 space-y-1">
+                            {userPosition?.deposited_amount > 0 && (
+                                <div>💰 Deposited: {tokenInfo?.isWSol ? (userPosition.deposited_amount / 1e9).toFixed(4) + ' SOL' : userPosition.deposited_amount + ' tokens'}</div>
+                            )}
+                            {yieldTokenBalance > 0 && (
+                                <div>🎯 Yield tokens: {(yieldTokenBalance / 1e9).toFixed(4)}</div>
+                            )}
                         </div>
                     )}
 
@@ -409,10 +426,14 @@ export function StrategyCard({ strategyId, strategyData }: {
                         onClick={handleWithdrawAll}
                         variant="destructive"
                         size="sm"
-                        disabled={yieldTokenBalance <= 0 || withdrawMutation.isPending}
+                        disabled={!userPosition || userPosition.deposited_amount <= 0 || withdrawMutation.isPending}
                         className="w-full"
                     >
-                        {withdrawMutation.isPending ? 'Withdrawing...' : `Withdraw All (${(yieldTokenBalance / 1e9).toFixed(4)})`}
+                        {withdrawMutation.isPending ? 'Withdrawing...' :
+                            userPosition && userPosition.deposited_amount > 0 ?
+                                `Withdraw All (${tokenInfo?.isWSol ? (userPosition.deposited_amount / 1e9).toFixed(4) + ' SOL' : userPosition.deposited_amount + ' tokens'})` :
+                                'No position'
+                        }
                     </Button>
                 </div>
             </CardContent>

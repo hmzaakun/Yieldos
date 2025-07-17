@@ -16,25 +16,28 @@ interface StrategyDetailFeatureProps {
 
 export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps) {
     const wallet = useWallet()
-    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements, getUserYieldTokenBalance } = useYieldosStrategy({ strategyId })
+    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements, getUserYieldTokenBalance, getUserPosition } = useYieldosStrategy({ strategyId })
     const [depositAmount, setDepositAmount] = useState('')
     const [withdrawAmount, setWithdrawAmount] = useState('')
     const [tokenInfo, setTokenInfo] = useState<any>(null)
     const [yieldTokenBalance, setYieldTokenBalance] = useState<number>(0)
+    const [userPosition, setUserPosition] = useState<any>(null)
 
     // Charger les informations sur les tokens requis (avec debouncing pour éviter le rate limiting)
     useEffect(() => {
-        if (!wallet.connected || !getTokenRequirements || !getUserYieldTokenBalance) return
+        if (!wallet.connected || !getTokenRequirements || !getUserYieldTokenBalance || !getUserPosition) return
 
         // Debounce pour éviter trop de requêtes
         const timeoutId = setTimeout(async () => {
             try {
-                const [info, balance] = await Promise.all([
+                const [info, balance, position] = await Promise.all([
                     getTokenRequirements(),
-                    getUserYieldTokenBalance()
+                    getUserYieldTokenBalance(),
+                    getUserPosition()
                 ])
                 setTokenInfo(info)
                 setYieldTokenBalance(balance)
+                setUserPosition(position)
             } catch (error) {
                 console.warn('Failed to load token info:', error)
             }
@@ -88,13 +91,23 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
     const handleWithdraw = async () => {
         if (!withdrawAmount) return
         try {
+            console.log('Manual withdraw:', {
+                requestedAmount: Number(withdrawAmount),
+                userPosition: userPosition,
+                availableToWithdraw: userPosition?.deposited_amount
+            })
+
             await withdrawMutation.mutateAsync({ amount: Number(withdrawAmount) })
             setWithdrawAmount('')
 
-            // Recharger le solde après le withdraw
-            if (getUserYieldTokenBalance) {
-                const balance = await getUserYieldTokenBalance()
+            // Recharger les données après le withdraw
+            if (getUserYieldTokenBalance && getUserPosition) {
+                const [balance, position] = await Promise.all([
+                    getUserYieldTokenBalance(),
+                    getUserPosition()
+                ])
                 setYieldTokenBalance(balance)
+                setUserPosition(position)
             }
         } catch (error) {
             console.error('Withdraw failed:', error)
@@ -103,17 +116,22 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
 
     const handleWithdrawAll = async () => {
         try {
-            // Récupérer le solde le plus récent
-            const currentBalance = await getUserYieldTokenBalance()
+            // Récupérer la position utilisateur la plus récente
+            const currentPosition = await getUserPosition()
 
-            if (currentBalance <= 0) {
-                alert('No yield tokens to withdraw from this strategy.')
+            if (!currentPosition || currentPosition.deposited_amount <= 0) {
+                alert('No deposited tokens to withdraw from this strategy.')
                 return
             }
 
-            await withdrawMutation.mutateAsync({ amount: currentBalance })
+            console.log('Withdrawing all deposited tokens:', {
+                deposited_amount: currentPosition.deposited_amount,
+                yield_tokens_minted: currentPosition.yield_tokens_minted
+            })
+
+            await withdrawMutation.mutateAsync({ amount: currentPosition.deposited_amount })
             setWithdrawAmount('')
-            setYieldTokenBalance(0)
+            setUserPosition(null)
         } catch (error) {
             console.error('Withdraw all failed:', error)
         }
@@ -320,11 +338,12 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
                     </CardHeader>
                     <CardContent className="space-y-4">
                         {/* Affichage du solde actuel */}
-                        {yieldTokenBalance > 0 && (
+                        {userPosition && userPosition.deposited_amount > 0 && (
                             <div className="p-3 bg-blue-50 rounded-lg dark:bg-blue-950 mb-4">
-                                <p className="text-sm text-blue-700 dark:text-blue-300">
-                                    💰 Your yield token balance: {(yieldTokenBalance / 1e9).toFixed(4)} tokens
-                                </p>
+                                <div className="text-sm text-blue-700 dark:text-blue-300 space-y-1">
+                                    <p>💰 Your deposited amount: {tokenInfo?.isWSol ? (userPosition.deposited_amount / 1e9).toFixed(4) + ' SOL' : userPosition.deposited_amount + ' tokens'}</p>
+                                    <p>🎯 Yield tokens owned: {(yieldTokenBalance / 1e9).toFixed(4)} tokens</p>
+                                </div>
                             </div>
                         )}
 
@@ -352,10 +371,14 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
                             <Button
                                 onClick={handleWithdrawAll}
                                 variant="destructive"
-                                disabled={yieldTokenBalance <= 0 || withdrawMutation.isPending}
+                                disabled={!userPosition || userPosition.deposited_amount <= 0 || withdrawMutation.isPending}
                                 className="w-full"
                             >
-                                {withdrawMutation.isPending ? 'Withdrawing...' : `Withdraw All (${(yieldTokenBalance / 1e9).toFixed(4)})`}
+                                {withdrawMutation.isPending ? 'Withdrawing...' :
+                                    userPosition ?
+                                        `Withdraw All (${tokenInfo?.isWSol ? (userPosition.deposited_amount / 1e9).toFixed(4) + ' SOL' : userPosition.deposited_amount + ' tokens'})` :
+                                        'Withdraw All'
+                                }
                             </Button>
                         </div>
 

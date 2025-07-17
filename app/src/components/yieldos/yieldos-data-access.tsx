@@ -885,6 +885,62 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
         }
     }
 
+    // Fonction pour récupérer les données de la position utilisateur
+    const getUserPosition = async () => {
+        if (!connection || !wallet.publicKey) {
+            return null
+        }
+
+        try {
+            const [userPositionPda] = getPDAs.getUserPositionPda(wallet.publicKey, strategyId)
+            const positionAccount = await connection.getAccountInfo(userPositionPda)
+
+            if (!positionAccount) {
+                return null
+            }
+
+            // Parser manuellement les données UserPosition
+            const data = positionAccount.data
+            let offset = 8 // Skip discriminator
+
+            // user: Pubkey (32 bytes)
+            offset += 32
+
+            // strategy: Pubkey (32 bytes) 
+            offset += 32
+
+            // deposited_amount: u64 (8 bytes)
+            const depositedAmount = data.readBigUInt64LE(offset)
+            offset += 8
+
+            // yield_tokens_minted: u64 (8 bytes)
+            const yieldTokensMinted = data.readBigUInt64LE(offset)
+            offset += 8
+
+            // deposit_time: i64 (8 bytes)
+            const depositTime = data.readBigInt64LE(offset)
+            offset += 8
+
+            // last_yield_claim: i64 (8 bytes) 
+            const lastYieldClaim = data.readBigInt64LE(offset)
+            offset += 8
+
+            // total_yield_claimed: u64 (8 bytes)
+            const totalYieldClaimed = data.readBigUInt64LE(offset)
+
+            return {
+                deposited_amount: Number(depositedAmount),
+                yield_tokens_minted: Number(yieldTokensMinted),
+                deposit_time: Number(depositTime),
+                last_yield_claim: Number(lastYieldClaim),
+                total_yield_claimed: Number(totalYieldClaimed)
+            }
+        } catch (error) {
+            console.warn('Error getting user position:', error)
+            return null
+        }
+    }
+
     // Fonction pour récupérer le solde de yield tokens de l'utilisateur
     const getUserYieldTokenBalance = async () => {
         if (!connection || !wallet.publicKey) {
@@ -916,6 +972,7 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
         depositMutation,
         withdrawMutation,
         getTokenRequirements,
-        getUserYieldTokenBalance
+        getUserYieldTokenBalance,
+        getUserPosition
     }
 } 
