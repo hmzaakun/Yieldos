@@ -236,7 +236,7 @@ export function MarketplaceFeature() {
     }
 
     const handleCancelOrder = async (orderId: number) => {
-        if (!finalMarketplace) return
+        if (!finalMarketplace || !selectedStrategy) return
 
         try {
             // Calculer le vrai PDA du marketplace
@@ -244,7 +244,8 @@ export function MarketplaceFeature() {
 
             await cancelOrderMutation.mutateAsync({
                 orderId,
-                marketplacePda
+                marketplacePda,
+                strategyId: selectedStrategy
             })
             ordersQuery.refetch()
             fetchUserYieldTokenBalance() // Refresh balance after cancel order
@@ -332,7 +333,7 @@ export function MarketplaceFeature() {
 
     // Fonction pour trouver et exécuter des trades automatiquement
     const findAndExecuteTrades = async () => {
-        if (!ordersQuery.data || !finalMarketplace) return
+        if (!ordersQuery.data || !finalMarketplace || !selectedStrategy) return
 
         const buyOrders = ordersQuery.data.filter(order => order.orderType === 0) // Buy orders
         const sellOrders = ordersQuery.data.filter(order => order.orderType === 1) // Sell orders
@@ -359,7 +360,8 @@ export function MarketplaceFeature() {
                                 buyOrderPda,
                                 sellOrderPda,
                                 tradeAmount,
-                                marketplacePda
+                                marketplacePda,
+                                strategyId: selectedStrategy
                             })
                             // Refresh orders after successful trade
                             ordersQuery.refetch()

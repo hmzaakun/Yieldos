@@ -1435,7 +1435,7 @@ export function useMarketplace() {
 
     // Mutation pour annuler un ordre
     const cancelOrderMutation = useMutation({
-        mutationFn: async ({ orderId, marketplacePda }: { orderId: number, marketplacePda: PublicKey }) => {
+        mutationFn: async ({ orderId, marketplacePda, strategyId }: { orderId: number, marketplacePda: PublicKey, strategyId: number }) => {
             if (!program || !wallet.publicKey) {
                 throw new Error('Program or wallet not connected')
             }
@@ -1450,14 +1450,24 @@ export function useMarketplace() {
             // Parse order type to determine which token account to use
             const orderType = orderAccount.data.readUInt8(72) // orderType field offset
 
-            // Get marketplace data to find token mints
-            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
-            if (!marketplaceAccount) throw new Error('Marketplace not found')
+            // Calculer les PDAs pour les token mints
+            const [strategyPda] = getPDAs.getStrategyPda(strategyId)
+            const [yieldTokenMint] = getPDAs.getYieldTokenMintPda(strategyId)
 
-            let offset = 40
-            const yieldTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
-            offset += 32
-            const underlyingTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+            // Récupérer l'underlying token depuis la stratégie
+            let underlyingTokenMint: PublicKey
+            try {
+                const strategyAccount = await connection.getAccountInfo(strategyPda)
+                if (!strategyAccount) {
+                    throw new Error(`Strategy ${strategyId} not found`)
+                }
+                // L'underlying token est à l'offset 40 (discriminator 8 + admin 32)
+                const underlyingTokenBytes = strategyAccount.data.subarray(40, 72)
+                underlyingTokenMint = new PublicKey(underlyingTokenBytes)
+            } catch (parseError) {
+                console.warn('Failed to parse underlying token, using WSOL:', parseError)
+                underlyingTokenMint = new PublicKey('So11111111111111111111111111111111111111112')
+            }
 
             // Determine user token account based on order type
             const tokenMint = orderType === 1 ? yieldTokenMint : underlyingTokenMint // 1 = sell order
@@ -1498,12 +1508,14 @@ export function useMarketplace() {
             buyOrderPda,
             sellOrderPda,
             tradeAmount,
-            marketplacePda
+            marketplacePda,
+            strategyId
         }: {
             buyOrderPda: PublicKey,
             sellOrderPda: PublicKey,
             tradeAmount: number,
-            marketplacePda: PublicKey
+            marketplacePda: PublicKey,
+            strategyId: number
         }) => {
             if (!program || !wallet.publicKey) {
                 throw new Error('Program or wallet not connected')
@@ -1513,14 +1525,24 @@ export function useMarketplace() {
             const [buyOrderEscrowPda] = getPDAs.getEscrowPda(buyOrderPda)
             const [sellOrderEscrowPda] = getPDAs.getEscrowPda(sellOrderPda)
 
-            // Get marketplace data to find token mints
-            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
-            if (!marketplaceAccount) throw new Error('Marketplace not found')
+            // Calculer les PDAs pour les token mints
+            const [strategyPda] = getPDAs.getStrategyPda(strategyId)
+            const [yieldTokenMint] = getPDAs.getYieldTokenMintPda(strategyId)
 
-            let offset = 40
-            const yieldTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
-            offset += 32
-            const underlyingTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+            // Récupérer l'underlying token depuis la stratégie
+            let underlyingTokenMint: PublicKey
+            try {
+                const strategyAccount = await connection.getAccountInfo(strategyPda)
+                if (!strategyAccount) {
+                    throw new Error(`Strategy ${strategyId} not found`)
+                }
+                // L'underlying token est à l'offset 40 (discriminator 8 + admin 32)
+                const underlyingTokenBytes = strategyAccount.data.subarray(40, 72)
+                underlyingTokenMint = new PublicKey(underlyingTokenBytes)
+            } catch (parseError) {
+                console.warn('Failed to parse underlying token, using WSOL:', parseError)
+                underlyingTokenMint = new PublicKey('So11111111111111111111111111111111111111112')
+            }
 
             // Get order data to find users
             const buyOrderAccount = await connection.getAccountInfo(buyOrderPda)
@@ -1536,6 +1558,9 @@ export function useMarketplace() {
             const sellerUnderlyingTokenAccount = await getAssociatedTokenAddress(underlyingTokenMint, sellerPubkey)
 
             // Fee collection account (marketplace admin)
+            // Récupérer l'admin depuis les données du marketplace
+            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
+            if (!marketplaceAccount) throw new Error('Marketplace not found')
             const marketplaceAdmin = new PublicKey(marketplaceAccount.data.subarray(8, 40))
             const feeCollectionAccount = await getAssociatedTokenAddress(underlyingTokenMint, marketplaceAdmin)
 
