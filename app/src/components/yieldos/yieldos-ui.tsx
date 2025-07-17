@@ -97,20 +97,25 @@ export function StrategyCard({ strategyId, strategyData }: {
     strategyData?: { pubkey: PublicKey, account: any, strategyId: number }
 }) {
     const wallet = useWallet()
-    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements } = useYieldosStrategy({ strategyId })
+    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements, getUserYieldTokenBalance } = useYieldosStrategy({ strategyId })
     const [depositAmount, setDepositAmount] = useState('')
     const [withdrawAmount, setWithdrawAmount] = useState('')
     const [tokenInfo, setTokenInfo] = useState<any>(null)
+    const [yieldTokenBalance, setYieldTokenBalance] = useState<number>(0)
 
     // Charger les informations sur les tokens requis (avec debouncing pour éviter le rate limiting)
     useEffect(() => {
-        if (!wallet.connected || !getTokenRequirements) return
+        if (!wallet.connected || !getTokenRequirements || !getUserYieldTokenBalance) return
 
         // Debounce pour éviter trop de requêtes
         const timeoutId = setTimeout(async () => {
             try {
-                const info = await getTokenRequirements()
+                const [info, balance] = await Promise.all([
+                    getTokenRequirements(),
+                    getUserYieldTokenBalance()
+                ])
                 setTokenInfo(info)
+                setYieldTokenBalance(balance)
             } catch (error) {
                 console.warn('Failed to load token info:', error)
             }
@@ -281,8 +286,32 @@ export function StrategyCard({ strategyId, strategyData }: {
         try {
             await withdrawMutation.mutateAsync({ amount: Number(withdrawAmount) })
             setWithdrawAmount('')
+
+            // Recharger le solde après le withdraw
+            if (getUserYieldTokenBalance) {
+                const balance = await getUserYieldTokenBalance()
+                setYieldTokenBalance(balance)
+            }
         } catch (error) {
             console.error('Withdraw failed:', error)
+        }
+    }
+
+    const handleWithdrawAll = async () => {
+        try {
+            // Récupérer le solde le plus récent
+            const currentBalance = await getUserYieldTokenBalance()
+
+            if (currentBalance <= 0) {
+                alert('No yield tokens to withdraw from this strategy.')
+                return
+            }
+
+            await withdrawMutation.mutateAsync({ amount: currentBalance })
+            setWithdrawAmount('')
+            setYieldTokenBalance(0)
+        } catch (error) {
+            console.error('Withdraw all failed:', error)
         }
     }
 
@@ -350,6 +379,13 @@ export function StrategyCard({ strategyId, strategyData }: {
                 </div>
 
                 <div className="space-y-2">
+                    {/* Affichage du solde de yield tokens */}
+                    {yieldTokenBalance > 0 && (
+                        <div className="p-2 bg-green-50 rounded text-xs text-green-700 dark:bg-green-950 dark:text-green-300">
+                            💰 Yield tokens: {(yieldTokenBalance / 1e9).toFixed(4)}
+                        </div>
+                    )}
+
                     <Label htmlFor={`withdraw-${strategyId}`}>Withdraw Amount</Label>
                     <div className="flex space-x-2">
                         <Input
@@ -363,10 +399,21 @@ export function StrategyCard({ strategyId, strategyData }: {
                             onClick={handleWithdraw}
                             variant="outline"
                             disabled={!withdrawAmount || withdrawMutation.isPending}
+                            size="sm"
                         >
                             {withdrawMutation.isPending ? 'Withdrawing...' : 'Withdraw'}
                         </Button>
                     </div>
+
+                    <Button
+                        onClick={handleWithdrawAll}
+                        variant="destructive"
+                        size="sm"
+                        disabled={yieldTokenBalance <= 0 || withdrawMutation.isPending}
+                        className="w-full"
+                    >
+                        {withdrawMutation.isPending ? 'Withdrawing...' : `Withdraw All (${(yieldTokenBalance / 1e9).toFixed(4)})`}
+                    </Button>
                 </div>
             </CardContent>
         </Card>

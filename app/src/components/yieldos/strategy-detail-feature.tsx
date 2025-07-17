@@ -16,20 +16,25 @@ interface StrategyDetailFeatureProps {
 
 export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps) {
     const wallet = useWallet()
-    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements } = useYieldosStrategy({ strategyId })
+    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements, getUserYieldTokenBalance } = useYieldosStrategy({ strategyId })
     const [depositAmount, setDepositAmount] = useState('')
     const [withdrawAmount, setWithdrawAmount] = useState('')
     const [tokenInfo, setTokenInfo] = useState<any>(null)
+    const [yieldTokenBalance, setYieldTokenBalance] = useState<number>(0)
 
     // Charger les informations sur les tokens requis (avec debouncing pour éviter le rate limiting)
     useEffect(() => {
-        if (!wallet.connected || !getTokenRequirements) return
+        if (!wallet.connected || !getTokenRequirements || !getUserYieldTokenBalance) return
 
         // Debounce pour éviter trop de requêtes
         const timeoutId = setTimeout(async () => {
             try {
-                const info = await getTokenRequirements()
+                const [info, balance] = await Promise.all([
+                    getTokenRequirements(),
+                    getUserYieldTokenBalance()
+                ])
                 setTokenInfo(info)
+                setYieldTokenBalance(balance)
             } catch (error) {
                 console.warn('Failed to load token info:', error)
             }
@@ -85,8 +90,32 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
         try {
             await withdrawMutation.mutateAsync({ amount: Number(withdrawAmount) })
             setWithdrawAmount('')
+
+            // Recharger le solde après le withdraw
+            if (getUserYieldTokenBalance) {
+                const balance = await getUserYieldTokenBalance()
+                setYieldTokenBalance(balance)
+            }
         } catch (error) {
             console.error('Withdraw failed:', error)
+        }
+    }
+
+    const handleWithdrawAll = async () => {
+        try {
+            // Récupérer le solde le plus récent
+            const currentBalance = await getUserYieldTokenBalance()
+
+            if (currentBalance <= 0) {
+                alert('No yield tokens to withdraw from this strategy.')
+                return
+            }
+
+            await withdrawMutation.mutateAsync({ amount: currentBalance })
+            setWithdrawAmount('')
+            setYieldTokenBalance(0)
+        } catch (error) {
+            console.error('Withdraw all failed:', error)
         }
     }
 
@@ -290,6 +319,15 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
                         <CardDescription>Remove tokens from this strategy</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                        {/* Affichage du solde actuel */}
+                        {yieldTokenBalance > 0 && (
+                            <div className="p-3 bg-blue-50 rounded-lg dark:bg-blue-950 mb-4">
+                                <p className="text-sm text-blue-700 dark:text-blue-300">
+                                    💰 Your yield token balance: {(yieldTokenBalance / 1e9).toFixed(4)} tokens
+                                </p>
+                            </div>
+                        )}
+
                         <div className="space-y-2">
                             <Label htmlFor="withdraw-amount">Amount to Withdraw</Label>
                             <Input
@@ -300,14 +338,27 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
                                 onChange={(e) => setWithdrawAmount(e.target.value)}
                             />
                         </div>
-                        <Button
-                            onClick={handleWithdraw}
-                            variant="outline"
-                            disabled={!withdrawAmount || withdrawMutation.isPending}
-                            className="w-full"
-                        >
-                            {withdrawMutation.isPending ? 'Withdrawing...' : 'Withdraw Tokens'}
-                        </Button>
+
+                        <div className="grid gap-2">
+                            <Button
+                                onClick={handleWithdraw}
+                                variant="outline"
+                                disabled={!withdrawAmount || withdrawMutation.isPending}
+                                className="w-full"
+                            >
+                                {withdrawMutation.isPending ? 'Withdrawing...' : 'Withdraw Amount'}
+                            </Button>
+
+                            <Button
+                                onClick={handleWithdrawAll}
+                                variant="destructive"
+                                disabled={yieldTokenBalance <= 0 || withdrawMutation.isPending}
+                                className="w-full"
+                            >
+                                {withdrawMutation.isPending ? 'Withdrawing...' : `Withdraw All (${(yieldTokenBalance / 1e9).toFixed(4)})`}
+                            </Button>
+                        </div>
+
                         <p className="text-sm text-muted-foreground">
                             Withdraw your deposited tokens and any earned yield
                         </p>

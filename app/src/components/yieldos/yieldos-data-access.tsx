@@ -567,18 +567,47 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
                     const requiredLamports = amount // amount est en lamports pour SOL
                     const rentExemptAmount = await connection.getMinimumBalanceForRentExemption(165) // Taille d'un TokenAccount
 
-                    if (solBalance < requiredLamports + rentExemptAmount + 5000) { // 5000 lamports pour les frais de tx
-                        throw new Error(`Insufficient SOL balance. You need ${(requiredLamports + rentExemptAmount) / 1e9} SOL but only have ${solBalance / 1e9} SOL`)
+                    // Vérifier le solde WSOL actuel si le compte existe
+                    let currentWsolBalance = 0
+                    if (userTokenAccountInfo) {
+                        try {
+                            const tokenBalance = await connection.getTokenAccountBalance(userUnderlyingToken)
+                            currentWsolBalance = Number(tokenBalance.value.amount)
+                        } catch (error) {
+                            console.warn('Could not read WSOL balance:', error)
+                        }
                     }
 
-                    // Ajouter l'instruction pour convertir SOL → WSOL si le compte a été créé
-                    if (!userTokenAccountInfo) {
+                    console.log('WSOL deposit check:', {
+                        solBalance: solBalance / 1e9,
+                        currentWsolBalance: currentWsolBalance / 1e9,
+                        requiredAmount: amount / 1e9,
+                        hasWSolAccount: !!userTokenAccountInfo
+                    })
+
+                    // Si l'utilisateur a suffisamment de WSOL, utiliser ça
+                    if (currentWsolBalance >= amount) {
+                        console.log('Using existing WSOL balance')
+                        // Rien à faire, utiliser le WSOL existant
+                    } else {
+                        // Sinon, convertir SOL → WSOL
+                        const amountToWrap = amount - currentWsolBalance // Seulement wrapper ce qui manque
+
+                        if (solBalance < amountToWrap + rentExemptAmount + 5000) { // 5000 lamports pour les frais de tx
+                            throw new Error(`Insufficient SOL balance. You need ${(amountToWrap + rentExemptAmount) / 1e9} SOL but only have ${solBalance / 1e9} SOL`)
+                        }
+
+                        console.log('Converting SOL to WSOL:', {
+                            amountToWrap: amountToWrap / 1e9,
+                            existingWSol: currentWsolBalance / 1e9
+                        })
+
                         // Transférer SOL vers le compte WSOL
                         setupInstructions.push(
                             SystemProgram.transfer({
                                 fromPubkey: wallet.publicKey,
                                 toPubkey: userUnderlyingToken,
-                                lamports: amount,
+                                lamports: amountToWrap,
                             })
                         )
 
@@ -586,14 +615,6 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
                         setupInstructions.push(
                             createSyncNativeInstruction(userUnderlyingToken)
                         )
-                    } else {
-                        // Le compte existe, vérifier son solde
-                        const tokenBalance = await connection.getTokenAccountBalance(userUnderlyingToken)
-                        const currentBalance = tokenBalance.value.uiAmount || 0
-
-                        if (currentBalance * 1e9 < amount) {
-                            throw new Error(`Insufficient WSOL balance. You need ${amount / 1e9} WSOL but only have ${currentBalance} WSOL. You can wrap more SOL or use native SOL.`)
-                        }
                     }
                 } else {
                     // Pour les autres tokens, vérifier le solde
@@ -864,10 +885,37 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
         }
     }
 
+    // Fonction pour récupérer le solde de yield tokens de l'utilisateur
+    const getUserYieldTokenBalance = async () => {
+        if (!connection || !wallet.publicKey) {
+            return 0
+        }
+
+        try {
+            const [yieldTokenMintPda] = getPDAs.getYieldTokenMintPda(strategyId)
+            const userYieldTokenAccount = await getAssociatedTokenAddress(
+                yieldTokenMintPda,
+                wallet.publicKey
+            )
+
+            const accountInfo = await connection.getAccountInfo(userYieldTokenAccount)
+            if (!accountInfo) {
+                return 0
+            }
+
+            const tokenBalance = await connection.getTokenAccountBalance(userYieldTokenAccount)
+            return Number(tokenBalance.value.amount)
+        } catch (error) {
+            console.warn('Error getting yield token balance:', error)
+            return 0
+        }
+    }
+
     return {
         strategyQuery,
         depositMutation,
         withdrawMutation,
-        getTokenRequirements
+        getTokenRequirements,
+        getUserYieldTokenBalance
     }
 } 
