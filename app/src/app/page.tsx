@@ -1,5 +1,5 @@
-import { DashboardFeature } from '@/components/dashboard/dashboard-feature'
+import { YieldosHomePage } from '@/components/yieldos/yieldos-home-feature'
 
 export default function Home() {
-  return <DashboardFeature />
+  return <YieldosHomePage />
 }
