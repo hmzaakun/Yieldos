@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
 import Link from 'next/link'
 
@@ -16,15 +16,59 @@ interface StrategyDetailFeatureProps {
 
 export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps) {
     const wallet = useWallet()
-    const { strategyQuery, depositMutation, withdrawMutation } = useYieldosStrategy({ strategyId })
+    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements } = useYieldosStrategy({ strategyId })
     const [depositAmount, setDepositAmount] = useState('')
     const [withdrawAmount, setWithdrawAmount] = useState('')
+    const [tokenInfo, setTokenInfo] = useState<any>(null)
+
+    // Charger les informations sur les tokens requis
+    useEffect(() => {
+        const loadTokenInfo = async () => {
+            if (wallet.connected && getTokenRequirements) {
+                const info = await getTokenRequirements()
+                setTokenInfo(info)
+            }
+        }
+        loadTokenInfo()
+    }, [wallet.connected, getTokenRequirements, strategyId])
 
     const handleDeposit = async () => {
         if (!depositAmount) return
         try {
-            await depositMutation.mutateAsync({ amount: Number(depositAmount) })
+            // Recharger les infos token juste avant le deposit pour être sûr
+            let currentTokenInfo = tokenInfo
+            if (!currentTokenInfo && getTokenRequirements) {
+                currentTokenInfo = await getTokenRequirements()
+                setTokenInfo(currentTokenInfo)
+            }
+
+            // Convertir en lamports si c'est WSOL (SOL natif)
+            // Par défaut, assumer que c'est WSOL si on n'arrive pas à détecter
+            const isWSol = currentTokenInfo?.isWSol ?? true // Default to WSOL for SOL deposits
+            const amount = isWSol
+                ? Math.floor(Number(depositAmount) * 1e9) // Convertir SOL en lamports
+                : Number(depositAmount)
+
+            console.log('Deposit debug:', {
+                depositAmount,
+                'Number(depositAmount)': Number(depositAmount),
+                'isWSol': isWSol,
+                'calculated amount': amount,
+                'tokenInfo': currentTokenInfo
+            })
+
+            if (amount <= 0) {
+                throw new Error(`Invalid amount calculated: ${amount}. Please enter a positive number.`)
+            }
+
+            await depositMutation.mutateAsync({ amount })
             setDepositAmount('')
+
+            // Recharger les informations sur les tokens après le deposit
+            if (getTokenRequirements) {
+                const info = await getTokenRequirements()
+                setTokenInfo(info)
+            }
         } catch (error) {
             console.error('Deposit failed:', error)
         }
@@ -142,23 +186,77 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
                 </Card>
             </div>
 
+            {/* Token Requirements */}
+            {tokenInfo && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle>Token Requirements</CardTitle>
+                        <CardDescription>Information about the tokens required for this strategy</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        <div className="grid gap-4 md:grid-cols-2">
+                            <div>
+                                <h4 className="font-medium">Required Token</h4>
+                                <p className="text-sm text-muted-foreground">{tokenInfo.tokenName}</p>
+                                {tokenInfo.canUseNativeSOL && (
+                                    <p className="text-xs text-green-600 mt-1">✓ You can use native SOL</p>
+                                )}
+                            </div>
+                            <div>
+                                <h4 className="font-medium">Your Balance</h4>
+                                <div className="text-sm text-muted-foreground">
+                                    {tokenInfo.isWSol ? (
+                                        <>
+                                            <p>SOL: {(tokenInfo.currentSolBalance / 1e9).toFixed(4)}</p>
+                                            {tokenInfo.hasTokenAccount && (
+                                                <p>WSOL: {(tokenInfo.currentTokenBalance / 1e9).toFixed(4)}</p>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <p>Tokens: {tokenInfo.currentTokenBalance}</p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-3 bg-blue-50 rounded-lg dark:bg-blue-950">
+                            <p className="text-sm text-blue-700 dark:text-blue-300">
+                                💡 {tokenInfo.recommendedAction}
+                            </p>
+                        </div>
+                    </CardContent>
+                </Card>
+            )}
+
             {/* Actions */}
             <div className="grid gap-6 md:grid-cols-2">
                 <Card>
                     <CardHeader>
                         <CardTitle>Deposit Tokens</CardTitle>
-                        <CardDescription>Add tokens to this strategy to start earning yield</CardDescription>
+                        <CardDescription>
+                            {tokenInfo?.isWSol
+                                ? "Deposit SOL or WSOL to this strategy to start earning yield"
+                                : "Add tokens to this strategy to start earning yield"
+                            }
+                        </CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="space-y-2">
-                            <Label htmlFor="deposit-amount">Amount to Deposit</Label>
+                            <Label htmlFor="deposit-amount">
+                                Amount to Deposit {tokenInfo?.isWSol ? "(in SOL)" : ""}
+                            </Label>
                             <Input
                                 id="deposit-amount"
                                 type="number"
                                 placeholder="0.0"
                                 value={depositAmount}
                                 onChange={(e) => setDepositAmount(e.target.value)}
+                                step={tokenInfo?.isWSol ? "0.001" : "1"}
                             />
+                            {tokenInfo?.isWSol && depositAmount && (
+                                <p className="text-xs text-muted-foreground">
+                                    = {(Number(depositAmount) * 1e9).toLocaleString()} lamports
+                                </p>
+                            )}
                         </div>
                         <Button
                             onClick={handleDeposit}
@@ -167,9 +265,16 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
                         >
                             {depositMutation.isPending ? 'Depositing...' : 'Deposit Tokens'}
                         </Button>
-                        <p className="text-sm text-muted-foreground">
-                            You will receive yield tokens representing your future earnings
-                        </p>
+                        <div className="space-y-2">
+                            <p className="text-sm text-muted-foreground">
+                                You will receive yield tokens representing your future earnings
+                            </p>
+                            {tokenInfo?.isWSol && (
+                                <p className="text-xs text-blue-600 dark:text-blue-400">
+                                    If you use SOL, it will be automatically converted to WSOL
+                                </p>
+                            )}
+                        </div>
                     </CardContent>
                 </Card>
 

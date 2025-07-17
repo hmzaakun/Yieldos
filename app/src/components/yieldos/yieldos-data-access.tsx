@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from '@solana/web3.js'
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token'
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction, TransactionInstruction } from '@solana/web3.js'
+import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction, NATIVE_MINT, createSyncNativeInstruction } from '@solana/spl-token'
 import * as anchor from '@coral-xyz/anchor'
 import { Program } from '@coral-xyz/anchor'
 import { useCluster } from '@/components/cluster/cluster-data-access'
@@ -117,6 +117,13 @@ export function useYieldosProgram() {
             )
         },
 
+        getStrategyVaultPda: (strategyId: number) => {
+            return PublicKey.findProgramAddressSync(
+                [Buffer.from("strategy_vault"), new anchor.BN(strategyId).toArrayLike(Buffer, "le", 8)],
+                YIELDOS_PROGRAM_ID
+            )
+        },
+
         getUserPositionPda: (user: PublicKey, strategyId: number) => {
             const [strategyPda] = PublicKey.findProgramAddressSync(
                 [Buffer.from("strategy"), new anchor.BN(strategyId).toArrayLike(Buffer, "le", 8)],
@@ -162,7 +169,7 @@ export function useYieldosProgram() {
 
                 console.log(`Strategy counter shows ${strategyCount} strategies`)
 
-                // Récupérer chaque stratégie individuellement
+                // Récupérer chaque stratégie individuellement avec décodage
                 const strategies = []
                 for (let i = 1; i <= strategyCount; i++) {
                     try {
@@ -170,9 +177,21 @@ export function useYieldosProgram() {
                         const accountInfo = await connection.getAccountInfo(strategyPda)
 
                         if (accountInfo) {
+                            // Essayer de décoder avec Anchor
+                            let decodedData = null
+                            if (program) {
+                                try {
+                                    const coder = new anchor.BorshAccountsCoder(YieldosIDL as anchor.Idl)
+                                    decodedData = coder.decode('strategy', accountInfo.data)
+                                } catch (decodeError) {
+                                    console.warn(`Failed to decode strategy ${i}:`, decodeError)
+                                }
+                            }
+
                             strategies.push({
                                 pubkey: strategyPda,
                                 account: accountInfo,
+                                decodedData: decodedData,
                                 strategyId: i
                             })
                         }
@@ -205,10 +224,67 @@ export function useYieldosProgram() {
                     throw new Error(`Strategy ${strategyId} not found`)
                 }
 
-                // Parse manuel pour éviter les problèmes d'IDL
+                // Parser manuellement les données (Anchor decode ne fonctionne pas avec notre IDL)
+                let decodedData = null
+                try {
+                    const data = accountInfo.data
+                    let offset = 8 // Skip discriminator
+
+                    // Skip admin (32), underlying_token (32), yield_token_mint (32)
+                    offset += 96
+
+                    // Parse name (4 bytes length + string data)
+                    const nameLength = data.readUInt32LE(offset)
+                    offset += 4
+                    const nameBytes = data.subarray(offset, offset + nameLength)
+                    const name = new TextDecoder().decode(nameBytes)
+                    offset += nameLength
+
+                    // Parse APY (8 bytes u64)
+                    const apyLow = data.readUInt32LE(offset)
+                    const apyHigh = data.readUInt32LE(offset + 4)
+                    const apy = apyHigh * 0x100000000 + apyLow
+                    offset += 8
+
+                    // Parse total_deposits (8 bytes u64)
+                    const totalDepositsLow = data.readUInt32LE(offset)
+                    const totalDepositsHigh = data.readUInt32LE(offset + 4)
+                    const totalDeposits = totalDepositsHigh * 0x100000000 + totalDepositsLow
+                    offset += 8
+
+                    // Parse is_active (1 byte bool)
+                    const isActive = data[offset] !== 0
+                    offset += 1
+
+                    // Skip created_at (8 bytes)
+                    offset += 8
+
+                    // Skip total_yield_tokens_minted (8 bytes)
+                    offset += 8
+
+                    // Parse strategy_id (8 bytes u64)
+                    const strategyIdLow = data.readUInt32LE(offset)
+                    const strategyIdHigh = data.readUInt32LE(offset + 4)
+                    const strategyId = strategyIdHigh * 0x100000000 + strategyIdLow
+
+                    decodedData = {
+                        name,
+                        apy,
+                        totalDeposits,
+                        isActive,
+                        strategyId
+                    }
+
+                    console.log('Manually parsed strategy:', decodedData)
+                } catch (parseError) {
+                    console.warn('Failed to parse strategy data:', parseError)
+                }
+
                 return {
                     publicKey: strategyPda,
-                    account: accountInfo
+                    account: accountInfo,
+                    decodedData: decodedData,
+                    strategyId: strategyId
                 }
             } catch (error) {
                 console.error(`Error fetching strategy ${strategyId}:`, error)
@@ -408,41 +484,143 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
             console.log(`Depositing ${amount} tokens to strategy ${strategyId}`)
 
             try {
-                // Calculer les PDAs nécessaires
+                // Calculer toutes les PDAs nécessaires
                 const [strategyPda] = getPDAs.getStrategyPda(strategyId)
                 const [userPositionPda] = getPDAs.getUserPositionPda(wallet.publicKey, strategyId)
+                const [strategyVaultPda] = getPDAs.getStrategyVaultPda(strategyId)
+                const [yieldTokenMintPda] = getPDAs.getYieldTokenMintPda(strategyId)
 
-                // Pour l'instant, on utilise des placeholders pour les token accounts
-                // En production, ces adresses devraient être récupérées de la stratégie
-                const mockUnderlyingToken = new PublicKey('So11111111111111111111111111111111111111112') // SOL wrapped
-                const mockYieldTokenMint = new PublicKey('So11111111111111111111111111111111111111112')
+                // Récupérer les informations de la stratégie pour obtenir l'underlying token
+                const strategyAccount = await connection.getAccountInfo(strategyPda)
+                if (!strategyAccount) {
+                    throw new Error(`Strategy ${strategyId} not found`)
+                }
 
-                const userTokenAccount = await getAssociatedTokenAddress(
-                    mockUnderlyingToken,
+                // Parser l'underlying token depuis les données de la stratégie
+                let underlyingTokenMint: PublicKey
+                try {
+                    // L'underlying token est à l'offset 40 (discriminator 8 + admin 32)
+                    const underlyingTokenBytes = strategyAccount.data.subarray(40, 72)
+                    underlyingTokenMint = new PublicKey(underlyingTokenBytes)
+                } catch (parseError) {
+                    console.warn('Failed to parse underlying token, using WSOL:', parseError)
+                    underlyingTokenMint = NATIVE_MINT // Utiliser NATIVE_MINT au lieu d'hardcoder
+                }
+
+                // Calculer les addresses des token accounts
+                const userUnderlyingToken = await getAssociatedTokenAddress(
+                    underlyingTokenMint,
                     wallet.publicKey
-                )
-
-                const strategyTokenAccount = await getAssociatedTokenAddress(
-                    mockUnderlyingToken,
-                    strategyPda,
-                    true
                 )
 
                 const userYieldTokenAccount = await getAssociatedTokenAddress(
-                    mockYieldTokenMint,
+                    yieldTokenMintPda,
                     wallet.publicKey
                 )
 
-                // Exécuter l'instruction depositToStrategy
+                // Vérifier si c'est WSOL (SOL natif)
+                const isWSol = underlyingTokenMint.equals(NATIVE_MINT)
+
+                // Préparer les instructions préparatoires
+                const setupInstructions: TransactionInstruction[] = []
+
+                // Vérifier si le compte de token utilisateur existe
+                const userTokenAccountInfo = await connection.getAccountInfo(userUnderlyingToken)
+
+                if (!userTokenAccountInfo) {
+                    console.log('Creating user token account for', underlyingTokenMint.toString())
+                    // Créer le compte de token associé
+                    setupInstructions.push(
+                        createAssociatedTokenAccountInstruction(
+                            wallet.publicKey, // payer
+                            userUnderlyingToken, // associatedToken
+                            wallet.publicKey, // owner
+                            underlyingTokenMint // mint
+                        )
+                    )
+                }
+
+                // Si c'est WSOL, gérer la conversion SOL → WSOL
+                if (isWSol) {
+                    // Vérifier le solde SOL de l'utilisateur
+                    const solBalance = await connection.getBalance(wallet.publicKey)
+                    const requiredLamports = amount // amount est en lamports pour SOL
+                    const rentExemptAmount = await connection.getMinimumBalanceForRentExemption(165) // Taille d'un TokenAccount
+
+                    if (solBalance < requiredLamports + rentExemptAmount + 5000) { // 5000 lamports pour les frais de tx
+                        throw new Error(`Insufficient SOL balance. You need ${(requiredLamports + rentExemptAmount) / 1e9} SOL but only have ${solBalance / 1e9} SOL`)
+                    }
+
+                    // Ajouter l'instruction pour convertir SOL → WSOL si le compte a été créé
+                    if (!userTokenAccountInfo) {
+                        // Transférer SOL vers le compte WSOL
+                        setupInstructions.push(
+                            SystemProgram.transfer({
+                                fromPubkey: wallet.publicKey,
+                                toPubkey: userUnderlyingToken,
+                                lamports: amount,
+                            })
+                        )
+
+                        // Synchroniser le compte WSOL
+                        setupInstructions.push(
+                            createSyncNativeInstruction(userUnderlyingToken)
+                        )
+                    } else {
+                        // Le compte existe, vérifier son solde
+                        const tokenBalance = await connection.getTokenAccountBalance(userUnderlyingToken)
+                        const currentBalance = tokenBalance.value.uiAmount || 0
+
+                        if (currentBalance * 1e9 < amount) {
+                            throw new Error(`Insufficient WSOL balance. You need ${amount / 1e9} WSOL but only have ${currentBalance} WSOL. You can wrap more SOL or use native SOL.`)
+                        }
+                    }
+                } else {
+                    // Pour les autres tokens, vérifier le solde
+                    if (userTokenAccountInfo) {
+                        const tokenBalance = await connection.getTokenAccountBalance(userUnderlyingToken)
+                        const currentBalance = Number(tokenBalance.value.amount)
+
+                        if (currentBalance < amount) {
+                            throw new Error(`Insufficient token balance. You need ${amount} tokens but only have ${currentBalance} tokens.`)
+                        }
+                    } else {
+                        throw new Error(`You don't have a token account for this strategy's underlying token. Please obtain some tokens first.`)
+                    }
+                }
+
+                console.log('Deposit accounts:', {
+                    user: wallet.publicKey.toString(),
+                    strategy: strategyPda.toString(),
+                    userPosition: userPositionPda.toString(),
+                    underlyingTokenMint: underlyingTokenMint.toString(),
+                    userUnderlyingToken: userUnderlyingToken.toString(),
+                    strategyVault: strategyVaultPda.toString(),
+                    yieldTokenMint: yieldTokenMintPda.toString(),
+                    userYieldTokenAccount: userYieldTokenAccount.toString(),
+                    isWSol,
+                    setupInstructionsCount: setupInstructions.length
+                })
+
+                // Si on a des instructions de setup, les exécuter d'abord
+                if (setupInstructions.length > 0) {
+                    console.log('Executing setup instructions...')
+                    const setupTx = new Transaction().add(...setupInstructions)
+                    const setupSignature = await provider.sendAndConfirm(setupTx)
+                    console.log('Setup transaction:', setupSignature)
+                }
+
+                // Exécuter l'instruction depositToStrategy avec la structure complète
                 const tx = await yieldosProgram.methods
-                    .depositToStrategy(new anchor.BN(amount))
+                    .depositToStrategy(new anchor.BN(amount), new anchor.BN(strategyId))
                     .accounts({
                         user: wallet.publicKey,
                         strategy: strategyPda,
                         userPosition: userPositionPda,
-                        userTokenAccount: userTokenAccount,
-                        strategyTokenAccount: strategyTokenAccount,
-                        yieldTokenMint: mockYieldTokenMint,
+                        underlyingTokenMint: underlyingTokenMint,
+                        userUnderlyingToken: userUnderlyingToken,
+                        strategyVault: strategyVaultPda,
+                        yieldTokenMint: yieldTokenMintPda,
                         userYieldTokenAccount: userYieldTokenAccount,
                         tokenProgram: TOKEN_PROGRAM_ID,
                         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -455,6 +633,17 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
                 return tx
             } catch (error) {
                 console.error('Deposit error:', error)
+
+                // Message d'erreur plus utile pour l'utilisateur
+                if (error instanceof Error) {
+                    if (error.message.includes('AccountNotInitialized')) {
+                        throw new Error('Token account setup failed. Please try again.')
+                    } else if (error.message.includes('already in use')) {
+                        throw new Error('User position already exists. This might be a normal state.')
+                    } else if (error.message.includes('insufficient funds')) {
+                        throw new Error('Insufficient token balance for this deposit.')
+                    }
+                }
                 throw error
             }
         },
@@ -479,44 +668,62 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
             console.log(`Withdrawing ${amount} tokens from strategy ${strategyId}`)
 
             try {
-                // Calculer les PDAs nécessaires
+                // Calculer toutes les PDAs nécessaires
                 const [strategyPda] = getPDAs.getStrategyPda(strategyId)
                 const [userPositionPda] = getPDAs.getUserPositionPda(wallet.publicKey, strategyId)
+                const [strategyVaultPda] = getPDAs.getStrategyVaultPda(strategyId)
+                const [yieldTokenMintPda] = getPDAs.getYieldTokenMintPda(strategyId)
 
-                // Placeholders pour les token accounts
-                const mockUnderlyingToken = new PublicKey('So11111111111111111111111111111111111111112')
-                const mockYieldTokenMint = new PublicKey('So11111111111111111111111111111111111111112')
+                // Récupérer les informations de la stratégie pour obtenir l'underlying token
+                const strategyAccount = await connection.getAccountInfo(strategyPda)
+                if (!strategyAccount) {
+                    throw new Error(`Strategy ${strategyId} not found`)
+                }
 
-                const userTokenAccount = await getAssociatedTokenAddress(
-                    mockUnderlyingToken,
+                // Parser l'underlying token depuis les données de la stratégie
+                let underlyingTokenMint: PublicKey
+                try {
+                    // L'underlying token est à l'offset 40 (discriminator 8 + admin 32)
+                    const underlyingTokenBytes = strategyAccount.data.subarray(40, 72)
+                    underlyingTokenMint = new PublicKey(underlyingTokenBytes)
+                } catch (parseError) {
+                    console.warn('Failed to parse underlying token, using WSOL:', parseError)
+                    underlyingTokenMint = new PublicKey('So11111111111111111111111111111111111111112')
+                }
+
+                // Calculer les addresses des token accounts
+                const userUnderlyingToken = await getAssociatedTokenAddress(
+                    underlyingTokenMint,
                     wallet.publicKey
-                )
-
-                const strategyTokenAccount = await getAssociatedTokenAddress(
-                    mockUnderlyingToken,
-                    strategyPda,
-                    true
                 )
 
                 const userYieldTokenAccount = await getAssociatedTokenAddress(
-                    mockYieldTokenMint,
+                    yieldTokenMintPda,
                     wallet.publicKey
                 )
 
-                // Exécuter l'instruction withdrawFromStrategy
+                console.log('Withdraw accounts:', {
+                    user: wallet.publicKey.toString(),
+                    strategy: strategyPda.toString(),
+                    userPosition: userPositionPda.toString(),
+                    strategyVault: strategyVaultPda.toString(),
+                    userUnderlyingToken: userUnderlyingToken.toString(),
+                    yieldTokenMint: yieldTokenMintPda.toString(),
+                    userYieldTokenAccount: userYieldTokenAccount.toString()
+                })
+
+                // Exécuter l'instruction withdrawFromStrategy avec la structure complète
                 const tx = await yieldosProgram.methods
-                    .withdrawFromStrategy(new anchor.BN(amount))
+                    .withdrawFromStrategy(new anchor.BN(amount), new anchor.BN(strategyId))
                     .accounts({
                         user: wallet.publicKey,
                         strategy: strategyPda,
                         userPosition: userPositionPda,
-                        userTokenAccount: userTokenAccount,
-                        strategyTokenAccount: strategyTokenAccount,
-                        yieldTokenMint: mockYieldTokenMint,
+                        strategyVault: strategyVaultPda,
+                        userUnderlyingToken: userUnderlyingToken,
+                        yieldTokenMint: yieldTokenMintPda,
                         userYieldTokenAccount: userYieldTokenAccount,
                         tokenProgram: TOKEN_PROGRAM_ID,
-                        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-                        systemProgram: SystemProgram.programId,
                     })
                     .rpc()
 
@@ -524,6 +731,17 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
                 return tx
             } catch (error) {
                 console.error('Withdraw error:', error)
+
+                // Message d'erreur plus utile pour l'utilisateur
+                if (error instanceof Error) {
+                    if (error.message.includes('AccountNotInitialized')) {
+                        throw new Error('No position found for this strategy. You need to deposit first.')
+                    } else if (error.message.includes('insufficient funds')) {
+                        throw new Error('Insufficient yield tokens to withdraw this amount.')
+                    } else if (error.message.includes('InvalidAccountData')) {
+                        throw new Error('Invalid withdrawal amount or strategy state.')
+                    }
+                }
                 throw error
             }
         },
@@ -532,9 +750,75 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
         }
     })
 
+    // Fonction utilitaire pour obtenir des infos sur les tokens requis
+    const getTokenRequirements = async () => {
+        if (!connection || !wallet.publicKey) {
+            return null
+        }
+
+        try {
+            const [strategyPda] = getPDAs.getStrategyPda(strategyId)
+            const strategyAccount = await connection.getAccountInfo(strategyPda)
+
+            if (!strategyAccount) {
+                return null
+            }
+
+            // Parser l'underlying token
+            let underlyingTokenMint: PublicKey
+            try {
+                const underlyingTokenBytes = strategyAccount.data.subarray(40, 72)
+                underlyingTokenMint = new PublicKey(underlyingTokenBytes)
+            } catch (parseError) {
+                underlyingTokenMint = NATIVE_MINT
+            }
+
+            const isWSol = underlyingTokenMint.equals(NATIVE_MINT)
+            const userTokenAddress = await getAssociatedTokenAddress(underlyingTokenMint, wallet.publicKey)
+            const userTokenAccountInfo = await connection.getAccountInfo(userTokenAddress)
+
+            let currentBalance = 0
+            let solBalance = 0
+
+            // Obtenir le solde SOL
+            solBalance = await connection.getBalance(wallet.publicKey)
+
+            // Obtenir le solde du token si le compte existe
+            if (userTokenAccountInfo) {
+                try {
+                    const tokenBalance = await connection.getTokenAccountBalance(userTokenAddress)
+                    currentBalance = Number(tokenBalance.value.amount)
+                } catch (error) {
+                    console.warn('Could not fetch token balance:', error)
+                }
+            }
+
+            return {
+                underlyingTokenMint: underlyingTokenMint.toString(),
+                isWSol,
+                hasTokenAccount: !!userTokenAccountInfo,
+                currentTokenBalance: currentBalance,
+                currentSolBalance: solBalance,
+                tokenName: isWSol ? 'WSOL (Wrapped SOL)' : 'Token',
+                canUseNativeSOL: isWSol,
+                recommendedAction: isWSol
+                    ? (userTokenAccountInfo && currentBalance > 0)
+                        ? 'You can use your existing WSOL tokens'
+                        : 'You can deposit SOL directly - it will be converted to WSOL automatically'
+                    : userTokenAccountInfo
+                        ? 'Use your existing tokens'
+                        : 'You need to obtain this token first'
+            }
+        } catch (error) {
+            console.error('Error getting token requirements:', error)
+            return null
+        }
+    }
+
     return {
         strategyQuery,
         depositMutation,
-        withdrawMutation
+        withdrawMutation,
+        getTokenRequirements
     }
 } 

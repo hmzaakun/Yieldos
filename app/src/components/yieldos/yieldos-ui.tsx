@@ -101,24 +101,98 @@ export function StrategyCard({ strategyId, strategyData }: {
     const [depositAmount, setDepositAmount] = useState('')
     const [withdrawAmount, setWithdrawAmount] = useState('')
 
-    // Si on a strategyData, on peut essayer de parser les informations directement
+    // Parser les vraies données du contrat
     const strategyInfo = useMemo(() => {
+        // D'abord essayer d'utiliser les données décodées par Anchor
+        if (strategyQuery.data?.decodedData) {
+            const decoded = strategyQuery.data.decodedData
+            console.log('Using Anchor-decoded data:', decoded)
+
+            return {
+                name: decoded.name || `Strategy #${strategyId}`,
+                apy: Number(decoded.apy || 0),
+                totalLocked: Number(decoded.totalDeposits || 0),
+                isActive: decoded.isActive || false,
+                strategyId: Number(decoded.strategyId || strategyId)
+            }
+        }
+
+        // Sinon faire le parsing manuel si on a les données brutes
         if (strategyData?.account?.data) {
             try {
-                // Parser basique des données (structure simplifiée)
                 const data = strategyData.account.data
-                // Les données réelles nécessiteraient un parsing plus complexe selon la structure Rust
+
+                // Structure selon l'IDL Strategy:
+                // Discriminator (8 bytes) + admin (32) + underlying_token (32) + yield_token_mint (32) + name (4 + length) + apy (8) + total_deposits (8) + is_active (1) + created_at (8) + total_yield_tokens_minted (8) + strategy_id (8)
+
+                let offset = 8 // Skip discriminator
+
+                // Skip admin (32 bytes)
+                offset += 32
+
+                // Skip underlying_token (32 bytes)  
+                offset += 32
+
+                // Skip yield_token_mint (32 bytes)
+                offset += 32
+
+                // Parse name (4 bytes length + string data)
+                const nameLength = data.readUInt32LE(offset)
+                offset += 4
+                const nameBytes = data.subarray(offset, offset + nameLength)
+                const name = new TextDecoder().decode(nameBytes)
+                offset += nameLength
+
+                // Parse APY (8 bytes u64)
+                const apyLow = data.readUInt32LE(offset)
+                const apyHigh = data.readUInt32LE(offset + 4)
+                const apy = apyHigh * 0x100000000 + apyLow
+                offset += 8
+
+                // Parse total_deposits (8 bytes u64)
+                const totalDepositsLow = data.readUInt32LE(offset)
+                const totalDepositsHigh = data.readUInt32LE(offset + 4)
+                const totalDeposits = totalDepositsHigh * 0x100000000 + totalDepositsLow
+                offset += 8
+
+                // Parse is_active (1 byte bool)
+                const isActive = data[offset] !== 0
+                offset += 1
+
+                // Skip created_at (8 bytes)
+                offset += 8
+
+                // Skip total_yield_tokens_minted (8 bytes)
+                offset += 8
+
+                // Parse strategy_id (8 bytes u64)
+                const strategyIdLow = data.readUInt32LE(offset)
+                const strategyIdHigh = data.readUInt32LE(offset + 4)
+                const parsedStrategyId = strategyIdHigh * 0x100000000 + strategyIdLow
+
+                console.log('Manual parsed strategy data:', {
+                    name,
+                    apy,
+                    totalDeposits,
+                    isActive,
+                    strategyId: parsedStrategyId
+                })
+
                 return {
-                    name: `Strategy #${strategyId}`,
-                    apy: 1200, // 12% en basis points
-                    totalLocked: 1000
+                    name: name || `Strategy #${strategyId}`,
+                    apy: apy,
+                    totalLocked: totalDeposits,
+                    isActive: isActive,
+                    strategyId: parsedStrategyId
                 }
             } catch (error) {
-                console.warn('Error parsing strategy data:', error)
+                console.error('Error parsing strategy data:', error)
+                console.log('Raw data length:', strategyData.account.data.length)
+                console.log('Raw data (first 100 bytes):', Array.from(strategyData.account.data.slice(0, 100)))
             }
         }
         return null
-    }, [strategyData, strategyId])
+    }, [strategyQuery.data, strategyData, strategyId])
 
     if (!strategyData && strategyQuery.isLoading) {
         return (
@@ -185,8 +259,14 @@ export function StrategyCard({ strategyId, strategyData }: {
                         </span>
                     </div>
                     <div className="flex justify-between">
-                        <span className="text-sm font-medium">Total Locked:</span>
+                        <span className="text-sm font-medium">Total Deposited:</span>
                         <span className="text-sm">{displayInfo.totalLocked.toLocaleString()} tokens</span>
+                    </div>
+                    <div className="flex justify-between">
+                        <span className="text-sm font-medium">Status:</span>
+                        <span className={`text-sm ${strategyInfo?.isActive ? 'text-green-600' : 'text-red-600'}`}>
+                            {strategyInfo?.isActive ? 'Active' : 'Inactive'}
+                        </span>
                     </div>
                     <div className="flex justify-between">
                         <span className="text-sm font-medium">Your Position:</span>
@@ -195,7 +275,7 @@ export function StrategyCard({ strategyId, strategyData }: {
                     {strategyData && (
                         <div className="flex justify-between">
                             <span className="text-sm font-medium">Strategy ID:</span>
-                            <span className="text-sm font-mono">{strategyId}</span>
+                            <span className="text-sm font-mono">#{strategyInfo?.strategyId || strategyId}</span>
                         </div>
                     )}
                 </div>
