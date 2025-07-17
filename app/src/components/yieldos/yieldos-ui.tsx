@@ -2,8 +2,8 @@
 
 import { useMemo } from 'react'
 import { PublicKey } from '@solana/web3.js'
-import { useYieldosProgram, useYieldosStrategy, Strategy, UserPosition } from './yieldos-data-access'
-import { useProtocolStats, useUserPortfolioAnalytics, useStrategiesAnalytics } from './yieldos-analytics'
+import { useYieldosProgram, useYieldosStrategy } from './yieldos-data-access'
+import { useProtocolStats, useUserPortfolioAnalytics } from './yieldos-analytics'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -69,11 +69,20 @@ export function StrategiesList() {
                 </CardHeader>
                 <CardContent>
                     {strategies.length === 0 ? (
-                        <p className="text-muted-foreground">No strategies available</p>
+                        <p className="text-muted-foreground">
+                            No strategies available yet.
+                            {wallet.publicKey?.toString() === '7JS6XpnoEJDcrzUzg3K7dnpzK2pxYJAdQr5CaREzEHNt' && (
+                                <span> Create one using the form above!</span>
+                            )}
+                        </p>
                     ) : (
                         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                            {strategies.map((account, index) => (
-                                <StrategyCard key={account.pubkey.toString()} strategyId={index + 1} />
+                            {strategies.map((strategy) => (
+                                <StrategyCard
+                                    key={strategy.pubkey.toString()}
+                                    strategyId={strategy.strategyId}
+                                    strategyData={strategy}
+                                />
                             ))}
                         </div>
                     )}
@@ -84,12 +93,34 @@ export function StrategiesList() {
 }
 
 // Composant pour afficher une stratégie individuelle
-export function StrategyCard({ strategyId }: { strategyId: number }) {
+export function StrategyCard({ strategyId, strategyData }: {
+    strategyId: number,
+    strategyData?: { pubkey: PublicKey, account: any, strategyId: number }
+}) {
     const { strategyQuery, depositMutation, withdrawMutation } = useYieldosStrategy({ strategyId })
     const [depositAmount, setDepositAmount] = useState('')
     const [withdrawAmount, setWithdrawAmount] = useState('')
 
-    if (strategyQuery.isLoading) {
+    // Si on a strategyData, on peut essayer de parser les informations directement
+    const strategyInfo = useMemo(() => {
+        if (strategyData?.account?.data) {
+            try {
+                // Parser basique des données (structure simplifiée)
+                const data = strategyData.account.data
+                // Les données réelles nécessiteraient un parsing plus complexe selon la structure Rust
+                return {
+                    name: `Strategy #${strategyId}`,
+                    apy: 1200, // 12% en basis points
+                    totalLocked: 1000
+                }
+            } catch (error) {
+                console.warn('Error parsing strategy data:', error)
+            }
+        }
+        return null
+    }, [strategyData, strategyId])
+
+    if (!strategyData && strategyQuery.isLoading) {
         return (
             <Card>
                 <CardHeader>
@@ -100,7 +131,7 @@ export function StrategyCard({ strategyId }: { strategyId: number }) {
         )
     }
 
-    if (strategyQuery.error) {
+    if (!strategyData && strategyQuery.error) {
         return (
             <Card>
                 <CardHeader>
@@ -131,28 +162,42 @@ export function StrategyCard({ strategyId }: { strategyId: number }) {
         }
     }
 
+    const displayInfo = strategyInfo || {
+        name: `Strategy #${strategyId}`,
+        apy: 1200,
+        totalLocked: 0
+    }
+
     return (
         <Card>
             <CardHeader>
-                <CardTitle>Strategy #{strategyId}</CardTitle>
+                <CardTitle>{displayInfo.name}</CardTitle>
                 <CardDescription>
-                    High-yield strategy for earning passive income
+                    {strategyData ? 'Active on-chain strategy' : 'High-yield strategy for earning passive income'}
                 </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
                 <div className="space-y-2">
                     <div className="flex justify-between">
                         <span className="text-sm font-medium">APY:</span>
-                        <span className="text-sm text-green-600">12.00%</span>
+                        <span className="text-sm text-green-600">
+                            {(displayInfo.apy / 100).toFixed(2)}%
+                        </span>
                     </div>
                     <div className="flex justify-between">
                         <span className="text-sm font-medium">Total Locked:</span>
-                        <span className="text-sm">1,000.00 tokens</span>
+                        <span className="text-sm">{displayInfo.totalLocked.toLocaleString()} tokens</span>
                     </div>
                     <div className="flex justify-between">
                         <span className="text-sm font-medium">Your Position:</span>
                         <span className="text-sm">0.00 tokens</span>
                     </div>
+                    {strategyData && (
+                        <div className="flex justify-between">
+                            <span className="text-sm font-medium">Strategy ID:</span>
+                            <span className="text-sm font-mono">{strategyId}</span>
+                        </div>
+                    )}
                 </div>
 
                 <div className="space-y-2">

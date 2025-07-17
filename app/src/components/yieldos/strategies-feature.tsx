@@ -8,9 +8,12 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useState } from 'react'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { useYieldosProgram } from './yieldos-data-access'
+import { toast } from 'sonner'
 
 export function StrategiesPageFeature() {
     const wallet = useWallet()
+    const { createStrategyMutation } = useYieldosProgram()
     const [newStrategyName, setNewStrategyName] = useState('')
     const [newStrategyApy, setNewStrategyApy] = useState('')
 
@@ -18,12 +21,30 @@ export function StrategiesPageFeature() {
     const isAdmin = wallet.publicKey?.toString() === '7JS6XpnoEJDcrzUzg3K7dnpzK2pxYJAdQr5CaREzEHNt'
 
     const handleCreateStrategy = async () => {
-        if (!newStrategyName || !newStrategyApy) return
+        if (!newStrategyName || !newStrategyApy) {
+            toast.error('Please fill in all fields')
+            return
+        }
 
-        console.log('Creating strategy:', { name: newStrategyName, apy: newStrategyApy })
-        // Logic for creating strategy will be implemented later
-        setNewStrategyName('')
-        setNewStrategyApy('')
+        const apyBasisPoints = parseInt(newStrategyApy)
+        if (isNaN(apyBasisPoints) || apyBasisPoints < 0 || apyBasisPoints > 10000) {
+            toast.error('APY must be between 0 and 10000 basis points')
+            return
+        }
+
+        try {
+            await createStrategyMutation.mutateAsync({
+                name: newStrategyName,
+                apyBasisPoints: apyBasisPoints
+            })
+
+            toast.success(`Strategy "${newStrategyName}" created successfully!`)
+            setNewStrategyName('')
+            setNewStrategyApy('')
+        } catch (error) {
+            console.error('Error creating strategy:', error)
+            toast.error('Failed to create strategy. Check console for details.')
+        }
     }
 
     return (
@@ -78,9 +99,9 @@ export function StrategiesPageFeature() {
                                 </div>
                                 <Button
                                     onClick={handleCreateStrategy}
-                                    disabled={!newStrategyName || !newStrategyApy}
+                                    disabled={!newStrategyName || !newStrategyApy || createStrategyMutation.isPending}
                                 >
-                                    Create Strategy
+                                    {createStrategyMutation.isPending ? 'Creating...' : 'Create Strategy'}
                                 </Button>
                             </CardContent>
                         </Card>

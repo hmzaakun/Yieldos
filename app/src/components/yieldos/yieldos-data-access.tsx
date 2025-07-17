@@ -2,8 +2,8 @@
 
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useConnection, useWallet } from '@solana/wallet-adapter-react'
-import { Cluster, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Keypair, Transaction } from '@solana/web3.js'
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getOrCreateAssociatedTokenAccount, createMint, mintTo, getAssociatedTokenAddress } from '@solana/spl-token'
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from '@solana/web3.js'
+import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from '@solana/spl-token'
 import * as anchor from '@coral-xyz/anchor'
 import { Program } from '@coral-xyz/anchor'
 import { useCluster } from '@/components/cluster/cluster-data-access'
@@ -55,13 +55,13 @@ export interface Order {
 }
 
 // IDL type (version simplifiée pour TypeScript)
-type YieldosProgram = {
-    version: string
-    name: string
-    instructions: Array<any>
-    accounts: Array<any>
-    types: Array<any>
-}
+// type YieldosProgram = {
+//     version: string
+//     name: string
+//     instructions: Array<any>
+//     accounts: Array<any>
+//     types: Array<any>
+// }
 
 export function useYieldosProgram() {
     const { connection } = useConnection()
@@ -103,6 +103,20 @@ export function useYieldosProgram() {
             )
         },
 
+        getStrategyCounterPda: () => {
+            return PublicKey.findProgramAddressSync(
+                [Buffer.from("strategy_counter")],
+                YIELDOS_PROGRAM_ID
+            )
+        },
+
+        getYieldTokenMintPda: (strategyId: number) => {
+            return PublicKey.findProgramAddressSync(
+                [Buffer.from("yield_token"), new anchor.BN(strategyId).toArrayLike(Buffer, "le", 8)],
+                YIELDOS_PROGRAM_ID
+            )
+        },
+
         getUserPositionPda: (user: PublicKey, strategyId: number) => {
             const [strategyPda] = PublicKey.findProgramAddressSync(
                 [Buffer.from("strategy"), new anchor.BN(strategyId).toArrayLike(Buffer, "le", 8)],
@@ -129,20 +143,46 @@ export function useYieldosProgram() {
             if (!connection) throw new Error('Connection not available')
 
             try {
-                // Récupérer toutes les stratégies via RPC
-                const accounts = await connection.getProgramAccounts(YIELDOS_PROGRAM_ID, {
-                    filters: [
-                        {
-                            memcmp: {
-                                offset: 0,
-                                bytes: "strategy" // Discriminator simplifié
-                            }
-                        }
-                    ]
-                })
+                // D'abord essayer de récupérer le strategy counter pour savoir combien de stratégies existent
+                const [strategyCounterPda] = getPDAs.getStrategyCounterPda()
+                const counterAccount = await connection.getAccountInfo(strategyCounterPda)
 
-                console.log(`Found ${accounts.length} strategy accounts`)
-                return accounts
+                if (!counterAccount) {
+                    console.log('Strategy counter not found, no strategies exist yet')
+                    return []
+                }
+
+                // Parser le nombre de stratégies depuis le counter
+                const data = counterAccount.data
+                let strategyCount = 0
+                if (data.length >= 16) {
+                    const view = new DataView(data.buffer, data.byteOffset + 8, 8)
+                    strategyCount = Number(view.getBigUint64(0, true))
+                }
+
+                console.log(`Strategy counter shows ${strategyCount} strategies`)
+
+                // Récupérer chaque stratégie individuellement
+                const strategies = []
+                for (let i = 1; i <= strategyCount; i++) {
+                    try {
+                        const [strategyPda] = getPDAs.getStrategyPda(i)
+                        const accountInfo = await connection.getAccountInfo(strategyPda)
+
+                        if (accountInfo) {
+                            strategies.push({
+                                pubkey: strategyPda,
+                                account: accountInfo,
+                                strategyId: i
+                            })
+                        }
+                    } catch (error) {
+                        console.warn(`Failed to fetch strategy ${i}:`, error)
+                    }
+                }
+
+                console.log(`Successfully loaded ${strategies.length} strategies`)
+                return strategies
             } catch (error) {
                 console.error('Error fetching strategies:', error)
                 return []
@@ -151,8 +191,8 @@ export function useYieldosProgram() {
         enabled: !!connection
     })
 
-    // Query pour récupérer une stratégie spécifique
-    const getStrategyQuery = (strategyId: number) => useQuery({
+    // Function pour créer une query pour récupérer une stratégie spécifique
+    const useStrategyQuery = (strategyId: number) => useQuery({
         queryKey: ['yieldos', 'strategy', strategyId, { cluster: cluster.name }],
         queryFn: async () => {
             if (!connection) throw new Error('Connection not available')
@@ -205,47 +245,89 @@ export function useYieldosProgram() {
         enabled: !!connection && !!wallet.publicKey
     })
 
+    // Query pour obtenir le prochain strategy ID disponible
+    const getNextStrategyIdQuery = useQuery({
+        queryKey: ['yieldos', 'nextStrategyId', { cluster: cluster.name }],
+        queryFn: async () => {
+            if (!connection) throw new Error('Connection not available')
+
+            try {
+                const [strategyCounterPda] = getPDAs.getStrategyCounterPda()
+                const accountInfo = await connection.getAccountInfo(strategyCounterPda)
+
+                if (!accountInfo) {
+                    // Si le counter n'existe pas, commencer à 1
+                    return 1
+                }
+
+                // Parser le counter depuis les données du compte (simple u64 à l'offset 8)
+                const data = accountInfo.data
+                if (data.length >= 16) {
+                    const view = new DataView(data.buffer, data.byteOffset + 8, 8)
+                    const counter = view.getBigUint64(0, true) // little endian
+                    return Number(counter) + 1
+                }
+
+                return 1
+            } catch (error) {
+                console.error('Error fetching next strategy ID:', error)
+                return 1
+            }
+        },
+        enabled: !!connection
+    })
+
     // Mutations pour les instructions principales
     const createStrategyMutation = useMutation({
         mutationKey: ['yieldos', 'createStrategy'],
-        mutationFn: async ({ name, apyBasisPoints, strategyId }: {
+        mutationFn: async ({ name, apyBasisPoints }: {
             name: string,
-            apyBasisPoints: number,
-            strategyId: number
+            apyBasisPoints: number
         }) => {
             if (!connection || !wallet.publicKey || !provider || !program) {
                 throw new Error('Wallet or program not available')
             }
 
+            // Obtenir le prochain strategy ID
+            const strategyId = getNextStrategyIdQuery.data || 1
+
             try {
                 const [strategyPda] = getPDAs.getStrategyPda(strategyId)
+                const [strategyCounterPda] = getPDAs.getStrategyCounterPda()
+                const [yieldTokenMintPda] = getPDAs.getYieldTokenMintPda(strategyId)
 
-                // Créer un mock underlying token (en production, ceci serait passé en paramètre)
-                const mockUnderlyingToken = new PublicKey('So11111111111111111111111111111111111111112')
+                // Utiliser WSOL comme underlying token par défaut
+                const underlyingToken = new PublicKey('So11111111111111111111111111111111111111112')
 
-                // Calculer l'adresse du token account de la stratégie
-                const strategyTokenAccount = await getAssociatedTokenAddress(
-                    mockUnderlyingToken,
-                    strategyPda,
-                    true
-                )
+                console.log('Creating strategy with:', {
+                    name,
+                    apyBasisPoints,
+                    strategyId,
+                    strategyPda: strategyPda.toString(),
+                    strategyCounterPda: strategyCounterPda.toString(),
+                    yieldTokenMintPda: yieldTokenMintPda.toString()
+                })
 
                 const tx = await program.methods
                     .createStrategy(name, apyBasisPoints, new anchor.BN(strategyId))
                     .accounts({
                         admin: wallet.publicKey,
                         strategy: strategyPda,
-                        underlyingToken: mockUnderlyingToken,
-                        strategyTokenAccount: strategyTokenAccount,
-                        yieldTokenMint: strategyPda, // Temporary - should be proper mint
+                        strategyCounter: strategyCounterPda,
+                        underlyingToken: underlyingToken,
+                        yieldTokenMint: yieldTokenMintPda,
                         tokenProgram: TOKEN_PROGRAM_ID,
-                        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
                         systemProgram: SystemProgram.programId,
                         rent: SYSVAR_RENT_PUBKEY,
                     })
                     .rpc()
 
                 console.log('Create strategy transaction:', tx)
+
+                // Refetch queries après succès
+                strategiesQuery.refetch()
+                getNextStrategyIdQuery.refetch()
+
                 return tx
             } catch (error) {
                 console.error('Create strategy error:', error)
@@ -295,8 +377,9 @@ export function useYieldosProgram() {
         programId: YIELDOS_PROGRAM_ID,
         getPDAs,
         strategiesQuery,
-        getStrategyQuery,
+        useStrategyQuery,
         userPositionsQuery,
+        getNextStrategyIdQuery,
         createStrategyMutation,
         initializeProtocolMutation,
         cluster,
@@ -306,29 +389,11 @@ export function useYieldosProgram() {
 
 // Hook pour interagir avec une stratégie spécifique
 export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
-    const { connection, provider, getPDAs } = useYieldosProgram()
+    const { connection, provider, getPDAs, useStrategyQuery: createStrategyQuery } = useYieldosProgram()
     const wallet = useWallet()
     const transactionToast = useTransactionToast()
 
-    const strategyQuery = useQuery({
-        queryKey: ['yieldos', 'strategy', strategyId],
-        queryFn: async () => {
-            if (!connection) throw new Error('Connection not available')
-
-            const [strategyPda] = getPDAs.getStrategyPda(strategyId)
-            const accountInfo = await connection.getAccountInfo(strategyPda)
-
-            if (!accountInfo) {
-                throw new Error(`Strategy ${strategyId} not found`)
-            }
-
-            return {
-                publicKey: strategyPda,
-                account: accountInfo
-            }
-        },
-        enabled: !!connection
-    })
+    const strategyQuery = createStrategyQuery(strategyId)
 
     // Mutation pour depositer dans une stratégie
     const depositMutation = useMutation({

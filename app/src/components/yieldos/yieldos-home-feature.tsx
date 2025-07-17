@@ -149,7 +149,7 @@ export function YieldosHomePage() {
                         </CardHeader>
                         <CardContent>
                             <CardDescription className="text-center">
-                                Deposit your tokens into the strategy. You'll receive yield tokens representing your future earnings.
+                                Deposit your tokens into the strategy. You&apos;ll receive yield tokens representing your future earnings.
                             </CardDescription>
                         </CardContent>
                     </Card>
