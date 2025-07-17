@@ -1,7 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { PublicKey } from '@solana/web3.js'
+import { useWallet } from '@solana/wallet-adapter-react'
 import { useYieldosProgram, useYieldosStrategy } from './yieldos-data-access'
 import { useProtocolStats, useUserPortfolioAnalytics } from './yieldos-analytics'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -9,8 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useState } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
 
 // Composant pour afficher une liste de stratégies
 export function StrategiesList() {
@@ -97,9 +96,28 @@ export function StrategyCard({ strategyId, strategyData }: {
     strategyId: number,
     strategyData?: { pubkey: PublicKey, account: any, strategyId: number }
 }) {
-    const { strategyQuery, depositMutation, withdrawMutation } = useYieldosStrategy({ strategyId })
+    const wallet = useWallet()
+    const { strategyQuery, depositMutation, withdrawMutation, getTokenRequirements } = useYieldosStrategy({ strategyId })
     const [depositAmount, setDepositAmount] = useState('')
     const [withdrawAmount, setWithdrawAmount] = useState('')
+    const [tokenInfo, setTokenInfo] = useState<any>(null)
+
+    // Charger les informations sur les tokens requis (avec debouncing pour éviter le rate limiting)
+    useEffect(() => {
+        if (!wallet.connected || !getTokenRequirements) return
+
+        // Debounce pour éviter trop de requêtes
+        const timeoutId = setTimeout(async () => {
+            try {
+                const info = await getTokenRequirements()
+                setTokenInfo(info)
+            } catch (error) {
+                console.warn('Failed to load token info:', error)
+            }
+        }, 1500) // Attendre 1.5 secondes pour étaler les requêtes
+
+        return () => clearTimeout(timeoutId)
+    }, [wallet.connected, strategyId]) // Retirer getTokenRequirements des dépendances
 
     // Parser les vraies données du contrat
     const strategyInfo = useMemo(() => {
@@ -219,8 +237,40 @@ export function StrategyCard({ strategyId, strategyData }: {
     const handleDeposit = async () => {
         if (!depositAmount) return
         try {
-            await depositMutation.mutateAsync({ amount: Number(depositAmount) })
+            // Recharger les infos token juste avant le deposit pour être sûr
+            let currentTokenInfo = tokenInfo
+            if (!currentTokenInfo && getTokenRequirements) {
+                currentTokenInfo = await getTokenRequirements()
+                setTokenInfo(currentTokenInfo)
+            }
+
+            // Convertir en lamports si c'est WSOL (SOL natif)
+            // Par défaut, assumer que c'est WSOL si on n'arrive pas à détecter
+            const isWSol = currentTokenInfo?.isWSol ?? true // Default to WSOL for SOL deposits
+            const amount = isWSol
+                ? Math.floor(Number(depositAmount) * 1e9) // Convertir SOL en lamports
+                : Number(depositAmount)
+
+            console.log('StrategyCard Deposit debug:', {
+                depositAmount,
+                'Number(depositAmount)': Number(depositAmount),
+                'isWSol': isWSol,
+                'calculated amount': amount,
+                'tokenInfo': currentTokenInfo
+            })
+
+            if (amount <= 0) {
+                throw new Error(`Invalid amount calculated: ${amount}. Please enter a positive number.`)
+            }
+
+            await depositMutation.mutateAsync({ amount })
             setDepositAmount('')
+
+            // Recharger les informations sur les tokens après le deposit
+            if (getTokenRequirements) {
+                const info = await getTokenRequirements()
+                setTokenInfo(info)
+            }
         } catch (error) {
             console.error('Deposit failed:', error)
         }

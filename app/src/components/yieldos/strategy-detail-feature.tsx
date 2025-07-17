@@ -21,16 +21,22 @@ export function StrategyDetailFeature({ strategyId }: StrategyDetailFeatureProps
     const [withdrawAmount, setWithdrawAmount] = useState('')
     const [tokenInfo, setTokenInfo] = useState<any>(null)
 
-    // Charger les informations sur les tokens requis
+    // Charger les informations sur les tokens requis (avec debouncing pour éviter le rate limiting)
     useEffect(() => {
-        const loadTokenInfo = async () => {
-            if (wallet.connected && getTokenRequirements) {
+        if (!wallet.connected || !getTokenRequirements) return
+
+        // Debounce pour éviter trop de requêtes
+        const timeoutId = setTimeout(async () => {
+            try {
                 const info = await getTokenRequirements()
                 setTokenInfo(info)
+            } catch (error) {
+                console.warn('Failed to load token info:', error)
             }
-        }
-        loadTokenInfo()
-    }, [wallet.connected, getTokenRequirements, strategyId])
+        }, 1000) // Attendre 1 seconde avant de faire la requête
+
+        return () => clearTimeout(timeoutId)
+    }, [wallet.connected, strategyId]) // Retirer getTokenRequirements des dépendances
 
     const handleDeposit = async () => {
         if (!depositAmount) return

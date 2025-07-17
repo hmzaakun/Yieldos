@@ -7,7 +7,7 @@ import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddres
 import * as anchor from '@coral-xyz/anchor'
 import { Program } from '@coral-xyz/anchor'
 import { useCluster } from '@/components/cluster/cluster-data-access'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useTransactionToast } from '@/components/use-transaction-toast'
 import YieldosIDL from '@/idl/yieldos.json'
 
@@ -169,10 +169,15 @@ export function useYieldosProgram() {
 
                 console.log(`Strategy counter shows ${strategyCount} strategies`)
 
-                // Récupérer chaque stratégie individuellement avec décodage
+                // Récupérer chaque stratégie individuellement avec décodage (délais pour éviter rate limiting)
                 const strategies = []
                 for (let i = 1; i <= strategyCount; i++) {
                     try {
+                        // Attendre 300ms entre chaque requête pour éviter le rate limiting
+                        if (i > 1) {
+                            await new Promise(resolve => setTimeout(resolve, 300))
+                        }
+
                         const [strategyPda] = getPDAs.getStrategyPda(i)
                         const accountInfo = await connection.getAccountInfo(strategyPda)
 
@@ -207,7 +212,11 @@ export function useYieldosProgram() {
                 return []
             }
         },
-        enabled: !!connection
+        enabled: !!connection,
+        staleTime: 30000, // 30 secondes - ne pas refetch si les données sont récentes
+        gcTime: 60000, // 1 minute - garder en cache (remplace cacheTime)
+        refetchOnWindowFocus: false, // Ne pas refetch quand on revient sur l'onglet
+        refetchInterval: false // Pas de polling automatique
     })
 
     // Function pour créer une query pour récupérer une stratégie spécifique
@@ -291,7 +300,11 @@ export function useYieldosProgram() {
                 throw error
             }
         },
-        enabled: !!connection
+        enabled: !!connection,
+        staleTime: 20000, // 20 secondes
+        gcTime: 60000, // 1 minute 
+        refetchOnWindowFocus: false,
+        refetchInterval: false
     })
 
     // Query pour les positions utilisateur
@@ -318,7 +331,11 @@ export function useYieldosProgram() {
                 return []
             }
         },
-        enabled: !!connection && !!wallet.publicKey
+        enabled: !!connection && !!wallet.publicKey,
+        staleTime: 15000, // 15 secondes
+        gcTime: 60000, // 1 minute
+        refetchOnWindowFocus: false,
+        refetchInterval: false
     })
 
     // Query pour obtenir le prochain strategy ID disponible
@@ -475,6 +492,9 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
     const depositMutation = useMutation({
         mutationKey: ['yieldos', 'deposit', strategyId],
         mutationFn: async ({ amount }: { amount: number }) => {
+            console.log('=== DEPOSIT MUTATION START ===')
+            console.log('Received amount:', amount, 'type:', typeof amount)
+
             if (!connection || !wallet.publicKey || !provider) {
                 throw new Error('Wallet not connected')
             }
@@ -608,6 +628,17 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
                     const setupTx = new Transaction().add(...setupInstructions)
                     const setupSignature = await provider.sendAndConfirm(setupTx)
                     console.log('Setup transaction:', setupSignature)
+                }
+
+                // Validation finale avant l'envoi
+                console.log('Final validation before contract call:')
+                console.log('- amount:', amount, 'type:', typeof amount)
+                console.log('- strategyId:', strategyId, 'type:', typeof strategyId)
+                console.log('- new anchor.BN(amount):', new anchor.BN(amount).toString())
+                console.log('- amount > 0?', amount > 0)
+
+                if (!amount || amount <= 0) {
+                    throw new Error(`Invalid amount before contract call: ${amount}`)
                 }
 
                 // Exécuter l'instruction depositToStrategy avec la structure complète
@@ -750,13 +781,25 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
         }
     })
 
+    // Cache pour éviter les requêtes répétées
+    const [tokenRequirementsCache, setTokenRequirementsCache] = useState<any>(null)
+    const [lastCacheTime, setLastCacheTime] = useState(0)
+
     // Fonction utilitaire pour obtenir des infos sur les tokens requis
     const getTokenRequirements = async () => {
         if (!connection || !wallet.publicKey) {
             return null
         }
 
+        // Cache pendant 30 secondes pour éviter le rate limiting
+        const now = Date.now()
+        if (tokenRequirementsCache && (now - lastCacheTime) < 30000) {
+            console.log('Using cached token requirements')
+            return tokenRequirementsCache
+        }
+
         try {
+            console.log('Fetching fresh token requirements...')
             const [strategyPda] = getPDAs.getStrategyPda(strategyId)
             const strategyAccount = await connection.getAccountInfo(strategyPda)
 
@@ -793,7 +836,7 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
                 }
             }
 
-            return {
+            const result = {
                 underlyingTokenMint: underlyingTokenMint.toString(),
                 isWSol,
                 hasTokenAccount: !!userTokenAccountInfo,
@@ -809,6 +852,12 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
                         ? 'Use your existing tokens'
                         : 'You need to obtain this token first'
             }
+
+            // Sauvegarder en cache
+            setTokenRequirementsCache(result)
+            setLastCacheTime(Date.now())
+
+            return result
         } catch (error) {
             console.error('Error getting token requirements:', error)
             return null
