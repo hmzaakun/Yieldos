@@ -16,7 +16,7 @@ import { LAMPORTS_PER_SOL } from '@solana/web3.js'
 export function MarketplaceFeature() {
     const wallet = useWallet()
     const { strategiesQuery } = useYieldosProgram()
-    const { marketplacesQuery, getOrdersQuery, createMarketplaceMutation, placeOrderMutation, cancelOrderMutation, executeTradesMutation, getPDAs } = useMarketplace()
+    const { marketplacesQuery, getOrdersQuery, createMarketplaceMutation, placeOrderMutation, cancelOrderMutation, executeTradesMutation, getMarketplaceByStrategy, getPDAs } = useMarketplace()
 
     const [selectedStrategy, setSelectedStrategy] = useState<number | null>(null)
     const [selectedMarketplace, setSelectedMarketplace] = useState<MarketplaceData | null>(null)
@@ -28,20 +28,58 @@ export function MarketplaceFeature() {
 
     // Get marketplace for selected strategy
     const currentMarketplace = useMemo(() => {
-        if (!selectedStrategy || !marketplacesQuery.data || !strategiesQuery.data) return null
+        console.log('\n=== MARKETPLACE MATCHING ===')
+        console.log('selectedStrategy:', selectedStrategy)
+        console.log('marketplacesQuery.data length:', marketplacesQuery.data?.length || 0)
+        console.log('strategiesQuery.data length:', strategiesQuery.data?.length || 0)
+
+        if (!selectedStrategy || !marketplacesQuery.data || !strategiesQuery.data) {
+            console.log('Missing required data for marketplace matching')
+            return null
+        }
 
         // Find the strategy data to get its PDA
         const strategyData = strategiesQuery.data.find(s => s.strategyId === selectedStrategy)
-        if (!strategyData) return null
+        console.log('Found strategy data:', strategyData ? {
+            strategyId: strategyData.strategyId,
+            pubkey: strategyData.pubkey.toString()
+        } : 'NOT FOUND')
+
+        if (!strategyData) {
+            console.log('❌ Strategy not found for ID:', selectedStrategy)
+            return null
+        }
+
+        // Log all available marketplaces
+        console.log('Available marketplaces:')
+        marketplacesQuery.data.forEach((m, index) => {
+            console.log(`  ${index + 1}. Strategy: ${m.strategy.toString()}, ID: ${m.marketplaceId}`)
+        })
 
         // Find marketplace that matches this strategy's PDA
-        return marketplacesQuery.data.find(m =>
+        const foundMarketplace = marketplacesQuery.data.find(m =>
             m.strategy.toString() === strategyData.pubkey.toString()
-        ) || null
+        )
+
+        console.log('Marketplace search result:', foundMarketplace ? {
+            found: true,
+            strategy: foundMarketplace.strategy.toString(),
+            marketplaceId: foundMarketplace.marketplaceId
+        } : 'NOT FOUND')
+
+        console.log('=== END MARKETPLACE MATCHING ===\n')
+
+        return foundMarketplace || null
     }, [selectedStrategy, marketplacesQuery.data, strategiesQuery.data])
 
+    // Fallback marketplace cache
+    const [directMarketplaceCache, setDirectMarketplaceCache] = useState<{ [key: number]: MarketplaceData | null }>({})
+
+    // Final marketplace (from global search or direct lookup)
+    const finalMarketplace = currentMarketplace || (selectedStrategy ? directMarketplaceCache[selectedStrategy] : null)
+
     // Get orders for current marketplace
-    const ordersQuery = getOrdersQuery(currentMarketplace?.strategy ? new PublicKey(currentMarketplace.strategy) : null)
+    const ordersQuery = getOrdersQuery(finalMarketplace?.strategy ? new PublicKey(finalMarketplace.strategy) : null)
 
     // Auto-select first strategy and marketplace
     useEffect(() => {
@@ -52,11 +90,11 @@ export function MarketplaceFeature() {
     }, [strategiesQuery.data, selectedStrategy])
 
     useEffect(() => {
-        if (currentMarketplace && !selectedMarketplace) {
-            console.log('Setting current marketplace:', currentMarketplace)
-            setSelectedMarketplace(currentMarketplace)
+        if (finalMarketplace && !selectedMarketplace) {
+            console.log('Setting current marketplace:', finalMarketplace)
+            setSelectedMarketplace(finalMarketplace)
         }
-    }, [currentMarketplace, selectedMarketplace])
+    }, [finalMarketplace, selectedMarketplace])
 
     // Debug logs
     useEffect(() => {
@@ -71,6 +109,35 @@ export function MarketplaceFeature() {
             }))
         })
     }, [selectedStrategy, marketplacesQuery.data, strategiesQuery.data, currentMarketplace])
+
+    // Effect for direct marketplace lookup fallback
+    useEffect(() => {
+        if (selectedStrategy && !currentMarketplace && !marketplacesQuery.isLoading && !directMarketplaceCache[selectedStrategy]) {
+            console.log('No marketplace found via global search, trying direct lookup...')
+
+            const tryDirectLookup = async () => {
+                try {
+                    const directMarketplace = await getMarketplaceByStrategy(selectedStrategy)
+                    setDirectMarketplaceCache(prev => ({
+                        ...prev,
+                        [selectedStrategy]: directMarketplace
+                    }))
+
+                    if (directMarketplace) {
+                        console.log('✅ Found marketplace via direct lookup!')
+                    }
+                } catch (error) {
+                    console.warn('Direct lookup failed:', error)
+                    setDirectMarketplaceCache(prev => ({
+                        ...prev,
+                        [selectedStrategy]: null
+                    }))
+                }
+            }
+
+            tryDirectLookup()
+        }
+    }, [selectedStrategy, currentMarketplace, marketplacesQuery.isLoading, getMarketplaceByStrategy, directMarketplaceCache])
 
     const handleCreateMarketplace = async () => {
         if (!selectedStrategy) return
@@ -98,15 +165,32 @@ export function MarketplaceFeature() {
         ])
     }
 
+    const handleDirectMarketplaceLookup = async () => {
+        if (!selectedStrategy) return
+
+        console.log(`Testing direct marketplace lookup for strategy ${selectedStrategy}...`)
+        try {
+            const directMarketplace = await getMarketplaceByStrategy(selectedStrategy)
+            if (directMarketplace) {
+                alert(`✅ Found marketplace directly! ID: ${directMarketplace.marketplaceId}, Fee: ${directMarketplace.tradingFeeBps}bps`)
+            } else {
+                alert('❌ No marketplace found via direct lookup')
+            }
+        } catch (error) {
+            console.error('Direct lookup error:', error)
+            alert(`Error in direct lookup: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+    }
+
     const handleCreateSellOrder = async () => {
-        if (!sellAmount || !sellPrice || !currentMarketplace) return
+        if (!sellAmount || !sellPrice || !finalMarketplace) return
 
         try {
             const yieldTokenAmount = Math.floor(Number(sellAmount) * LAMPORTS_PER_SOL)
             const pricePerToken = Math.floor(Number(sellPrice) * 1000000) // 6 decimals for price
 
             await placeOrderMutation.mutateAsync({
-                marketplacePda: new PublicKey(currentMarketplace.strategy),
+                marketplacePda: new PublicKey(finalMarketplace.strategy),
                 orderType: 1, // Sell order
                 yieldTokenAmount,
                 pricePerToken
@@ -121,14 +205,14 @@ export function MarketplaceFeature() {
     }
 
     const handleCreateBuyOrder = async () => {
-        if (!buyAmount || !buyPrice || !currentMarketplace) return
+        if (!buyAmount || !buyPrice || !finalMarketplace) return
 
         try {
             const yieldTokenAmount = Math.floor(Number(buyAmount) * LAMPORTS_PER_SOL)
             const pricePerToken = Math.floor(Number(buyPrice) * 1000000) // 6 decimals for price
 
             await placeOrderMutation.mutateAsync({
-                marketplacePda: new PublicKey(currentMarketplace.strategy),
+                marketplacePda: new PublicKey(finalMarketplace.strategy),
                 orderType: 0, // Buy order
                 yieldTokenAmount,
                 pricePerToken
@@ -143,12 +227,12 @@ export function MarketplaceFeature() {
     }
 
     const handleCancelOrder = async (orderId: number) => {
-        if (!currentMarketplace) return
+        if (!finalMarketplace) return
 
         try {
             await cancelOrderMutation.mutateAsync({
                 orderId,
-                marketplacePda: new PublicKey(currentMarketplace.strategy)
+                marketplacePda: new PublicKey(finalMarketplace.strategy)
             })
             ordersQuery.refetch()
         } catch (error) {
@@ -235,7 +319,7 @@ export function MarketplaceFeature() {
 
     // Fonction pour trouver et exécuter des trades automatiquement
     const findAndExecuteTrades = async () => {
-        if (!ordersQuery.data || !currentMarketplace) return
+        if (!ordersQuery.data || !finalMarketplace) return
 
         const buyOrders = ordersQuery.data.filter(order => order.orderType === 0) // Buy orders
         const sellOrders = ordersQuery.data.filter(order => order.orderType === 1) // Sell orders
@@ -259,7 +343,7 @@ export function MarketplaceFeature() {
                                 buyOrderPda,
                                 sellOrderPda,
                                 tradeAmount,
-                                marketplacePda: new PublicKey(currentMarketplace.strategy)
+                                marketplacePda: new PublicKey(finalMarketplace.strategy)
                             })
                             // Refresh orders after successful trade
                             ordersQuery.refetch()
@@ -311,9 +395,16 @@ export function MarketplaceFeature() {
                                 Selected: {selectedStrategy || 'None'}
                             </p>
                         </div>
-                        <Button onClick={handleRefreshData} variant="outline" size="sm">
-                            Refresh Data
-                        </Button>
+                        <div className="flex gap-2">
+                            <Button onClick={handleRefreshData} variant="outline" size="sm">
+                                Refresh Data
+                            </Button>
+                            {selectedStrategy && (
+                                <Button onClick={handleDirectMarketplaceLookup} variant="outline" size="sm">
+                                    Test Direct Lookup
+                                </Button>
+                            )}
+                        </div>
                     </div>
                 </CardContent>
             </Card>
@@ -383,33 +474,33 @@ export function MarketplaceFeature() {
                         <CardContent>
                             {marketplacesQuery.isLoading ? (
                                 <p>Loading marketplace...</p>
-                            ) : currentMarketplace ? (
+                            ) : finalMarketplace ? (
                                 <div className="grid gap-4 md:grid-cols-3">
                                     <div>
                                         <Label>Trading Fee</Label>
-                                        <p className="text-lg font-semibold">{(currentMarketplace.tradingFeeBps / 100).toFixed(2)}%</p>
+                                        <p className="text-lg font-semibold">{(finalMarketplace.tradingFeeBps / 100).toFixed(2)}%</p>
                                     </div>
                                     <div>
                                         <Label>Total Volume</Label>
-                                        <p className="text-lg font-semibold">{formatAmount(currentMarketplace.totalVolume)}</p>
+                                        <p className="text-lg font-semibold">{formatAmount(finalMarketplace.totalVolume)}</p>
                                     </div>
                                     <div>
                                         <Label>Total Trades</Label>
-                                        <p className="text-lg font-semibold">{currentMarketplace.totalTrades}</p>
+                                        <p className="text-lg font-semibold">{finalMarketplace.totalTrades}</p>
                                     </div>
-                                    {currentMarketplace.bestBidPrice > 0 && (
+                                    {finalMarketplace.bestBidPrice > 0 && (
                                         <div>
                                             <Label>Best Bid</Label>
                                             <p className="text-lg font-semibold text-green-600">
-                                                {formatPrice(currentMarketplace.bestBidPrice)}
+                                                {formatPrice(finalMarketplace.bestBidPrice)}
                                             </p>
                                         </div>
                                     )}
-                                    {currentMarketplace.bestAskPrice > 0 && (
+                                    {finalMarketplace.bestAskPrice > 0 && (
                                         <div>
                                             <Label>Best Ask</Label>
                                             <p className="text-lg font-semibold text-red-600">
-                                                {formatPrice(currentMarketplace.bestAskPrice)}
+                                                {formatPrice(finalMarketplace.bestAskPrice)}
                                             </p>
                                         </div>
                                     )}
@@ -448,7 +539,7 @@ export function MarketplaceFeature() {
                         </CardContent>
                     </Card>
 
-                    {currentMarketplace && (
+                    {finalMarketplace && (
                         <>
                             {/* Trading Interface */}
                             <div className="grid gap-6 md:grid-cols-2">

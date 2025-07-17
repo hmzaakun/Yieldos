@@ -1048,25 +1048,53 @@ export function useMarketplace() {
             if (!connection) throw new Error('Connection not available')
 
             try {
-                // Récupérer tous les comptes du programme et filtrer manuellement
+                // Récupérer tous les comptes du programme et analyser leurs tailles
                 const accounts = await connection.getProgramAccounts(YIELDOS_PROGRAM_ID)
 
                 console.log(`Found ${accounts.length} total program accounts`)
 
-                // Filtrer pour ne garder que les marketplaces (basé sur la taille du compte)
+                // Analyser les tailles de comptes pour identifier les marketplaces
+                const accountSizes = accounts.map(acc => acc.account.data.length)
+                const uniqueSizes = [...new Set(accountSizes)].sort((a, b) => a - b)
+                console.log('Account sizes found:', uniqueSizes)
+
+                // Essayons plusieurs tailles possibles pour les marketplaces
+                const possibleMarketplaceSizes = [
+                    8 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 2 + 1 + 8 + 8, // taille calculée
+                    185, // taille alternative possible
+                    193, // autre taille possible
+                ]
+
+                console.log('Testing marketplace sizes:', possibleMarketplaceSizes)
+
+                // Filtrer les comptes qui pourraient être des marketplaces
                 const marketplaceAccounts = accounts.filter(account => {
-                    // Les comptes Marketplace ont une taille spécifique
-                    const expectedSize = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 2 + 1 + 8 + 8 // voir marketplace.rs
-                    return account.account.data.length === expectedSize
+                    const size = account.account.data.length
+                    const couldBeMarketplace = possibleMarketplaceSizes.includes(size)
+
+                    if (couldBeMarketplace) {
+                        console.log(`Potential marketplace account: ${account.pubkey.toString()}, size: ${size}`)
+                    }
+
+                    return couldBeMarketplace
                 })
 
-                console.log(`Found ${marketplaceAccounts.length} marketplace accounts`)
+                console.log(`Found ${marketplaceAccounts.length} potential marketplace accounts`)
 
                 const marketplaces: MarketplaceData[] = []
 
-                for (const account of marketplaceAccounts) {
+                // Si aucun compte n'a la bonne taille, essayons de parser tous les comptes
+                const accountsToTry = marketplaceAccounts.length > 0 ? marketplaceAccounts : accounts
+
+                console.log(`Trying to parse ${accountsToTry.length} accounts as marketplaces...`)
+
+                for (const account of accountsToTry) {
                     try {
                         const data = account.account.data
+                        console.log(`\nParsing marketplace account: ${account.pubkey.toString()}`)
+                        console.log(`Data length: ${data.length}`)
+                        console.log(`First 64 bytes:`, Array.from(data.subarray(0, Math.min(64, data.length))))
+
                         let offset = 8 // Skip discriminator
 
                         // Parse marketplace data
@@ -1078,6 +1106,13 @@ export function useMarketplace() {
                         offset += 32
                         const underlyingTokenMint = new PublicKey(data.subarray(offset, offset + 32))
                         offset += 32
+
+                        // Vérifier qu'on a encore assez de données
+                        if (offset + 8 > data.length) {
+                            console.warn(`Not enough data for volume at offset ${offset}, data length: ${data.length}`)
+                            continue
+                        }
+
                         const totalVolume = Number(data.readBigUInt64LE(offset))
                         offset += 8
                         const totalTrades = Number(data.readBigUInt64LE(offset))
@@ -1094,7 +1129,22 @@ export function useMarketplace() {
                         offset += 8
                         const marketplaceId = Number(data.readBigUInt64LE(offset))
 
-                        marketplaces.push({
+                        // Validation basique pour s'assurer que c'est vraiment un marketplace
+                        const isValidMarketplace = (
+                            admin.toString() !== '11111111111111111111111111111111' && // Pas le system program
+                            strategy.toString() !== '11111111111111111111111111111111' &&
+                            yieldTokenMint.toString() !== '11111111111111111111111111111111' &&
+                            underlyingTokenMint.toString() !== '11111111111111111111111111111111' &&
+                            tradingFeeBps <= 10000 && // Fee ne peut pas être > 100%
+                            (isActive === true || isActive === false) // Boolean valide
+                        )
+
+                        if (!isValidMarketplace) {
+                            console.log('Invalid marketplace data, skipping...')
+                            continue
+                        }
+
+                        const marketplaceData = {
                             admin,
                             strategy,
                             yieldTokenMint,
@@ -1107,9 +1157,20 @@ export function useMarketplace() {
                             isActive,
                             createdAt,
                             marketplaceId
+                        }
+
+                        console.log('✅ Successfully parsed valid marketplace:', {
+                            pubkey: account.pubkey.toString(),
+                            strategy: strategy.toString(),
+                            marketplaceId,
+                            isActive,
+                            tradingFeeBps
                         })
+
+                        marketplaces.push(marketplaceData)
                     } catch (parseError) {
-                        console.warn('Error parsing marketplace account:', parseError)
+                        console.warn(`Error parsing marketplace account ${account.pubkey.toString()}:`, parseError)
+                        console.log('Raw data:', Array.from(account.account.data))
                     }
                 }
 
@@ -1496,6 +1557,94 @@ export function useMarketplace() {
         }
     })
 
+    // Fonction utilitaire pour récupérer un marketplace spécifique
+    const getMarketplaceByStrategy = async (strategyId: number) => {
+        if (!connection) throw new Error('Connection not available')
+
+        try {
+            console.log(`\n=== DIRECT MARKETPLACE LOOKUP for strategy ${strategyId} ===`)
+
+            // Calculer la PDA de la stratégie
+            const [strategyPda] = getPDAs.getStrategyPda(strategyId)
+            console.log('Strategy PDA:', strategyPda.toString())
+
+            // Calculer la PDA du marketplace
+            const [marketplacePda] = getPDAs.getMarketplacePda(strategyPda)
+            console.log('Expected marketplace PDA:', marketplacePda.toString())
+
+            // Récupérer directement le compte marketplace
+            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
+
+            if (!marketplaceAccount) {
+                console.log('❌ No marketplace account found at this PDA')
+                return null
+            }
+
+            console.log('✅ Found marketplace account:', {
+                pubkey: marketplacePda.toString(),
+                dataLength: marketplaceAccount.data.length,
+                owner: marketplaceAccount.owner.toString()
+            })
+
+            // Parser les données du marketplace
+            const data = marketplaceAccount.data
+            let offset = 8 // Skip discriminator
+
+            const admin = new PublicKey(data.subarray(offset, offset + 32))
+            offset += 32
+            const strategy = new PublicKey(data.subarray(offset, offset + 32))
+            offset += 32
+            const yieldTokenMint = new PublicKey(data.subarray(offset, offset + 32))
+            offset += 32
+            const underlyingTokenMint = new PublicKey(data.subarray(offset, offset + 32))
+            offset += 32
+            const totalVolume = Number(data.readBigUInt64LE(offset))
+            offset += 8
+            const totalTrades = Number(data.readBigUInt64LE(offset))
+            offset += 8
+            const bestBidPrice = Number(data.readBigUInt64LE(offset))
+            offset += 8
+            const bestAskPrice = Number(data.readBigUInt64LE(offset))
+            offset += 8
+            const tradingFeeBps = data.readUInt16LE(offset)
+            offset += 2
+            const isActive = data.readUInt8(offset) === 1
+            offset += 1
+            const createdAt = Number(data.readBigInt64LE(offset))
+            offset += 8
+            const marketplaceId = Number(data.readBigUInt64LE(offset))
+
+            const marketplaceData = {
+                admin,
+                strategy,
+                yieldTokenMint,
+                underlyingTokenMint,
+                totalVolume,
+                totalTrades,
+                bestBidPrice,
+                bestAskPrice,
+                tradingFeeBps,
+                isActive,
+                createdAt,
+                marketplaceId
+            }
+
+            console.log('✅ Successfully parsed direct marketplace:', {
+                strategy: strategy.toString(),
+                marketplaceId,
+                isActive,
+                tradingFeeBps
+            })
+
+            console.log('=== END DIRECT MARKETPLACE LOOKUP ===\n')
+
+            return marketplaceData
+        } catch (error) {
+            console.error('Error in direct marketplace lookup:', error)
+            return null
+        }
+    }
+
     return {
         marketplacesQuery,
         getOrdersQuery,
@@ -1503,6 +1652,7 @@ export function useMarketplace() {
         placeOrderMutation,
         cancelOrderMutation,
         executeTradesMutation,
+        getMarketplaceByStrategy,
         getPDAs
     }
 } 
