@@ -6,15 +6,17 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { useState, useEffect, useMemo } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
+import React, { useState, useEffect, useMemo } from 'react'
+import { useWallet, useConnection } from '@solana/wallet-adapter-react'
 import { useMarketplace, useYieldosProgram, MarketplaceData, TradeOrderData } from './yieldos-data-access'
 import { PublicKey } from '@solana/web3.js'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { LAMPORTS_PER_SOL } from '@solana/web3.js'
+import { getAssociatedTokenAddress } from '@solana/spl-token'
 
 export function MarketplaceFeature() {
     const wallet = useWallet()
+    const { connection } = useConnection()
     const { strategiesQuery } = useYieldosProgram()
     const { marketplacesQuery, getOrdersQuery, createMarketplaceMutation, placeOrderMutation, cancelOrderMutation, executeTradesMutation, getMarketplaceByStrategy, getPDAs } = useMarketplace()
 
@@ -26,48 +28,63 @@ export function MarketplaceFeature() {
     const [buyPrice, setBuyPrice] = useState('')
     const [createMarketplaceFee, setCreateMarketplaceFee] = useState('100') // 1% default
 
+    // État pour le balance des yield tokens de l'utilisateur
+    const [userYieldTokenBalance, setUserYieldTokenBalance] = useState<number>(0)
+    const [loadingBalance, setLoadingBalance] = useState(false)
+
+    // Fonction pour récupérer le balance des yield tokens
+    const fetchUserYieldTokenBalance = async () => {
+        if (!wallet.publicKey || !selectedStrategy) {
+            setUserYieldTokenBalance(0)
+            return
+        }
+
+        setLoadingBalance(true)
+        try {
+
+            // Calculer le PDA du yield token mint
+            const [yieldTokenMintPda] = getPDAs.getYieldTokenMintPda(selectedStrategy)
+
+            // Calculer l'adresse du token account de l'utilisateur
+            const userYieldTokenAccount = await getAssociatedTokenAddress(yieldTokenMintPda, wallet.publicKey)
+
+            // Récupérer le balance
+            const tokenAccount = await connection.getTokenAccountBalance(userYieldTokenAccount)
+            if (tokenAccount.value) {
+                setUserYieldTokenBalance(Number(tokenAccount.value.amount) / LAMPORTS_PER_SOL) // Convert from lamports
+            } else {
+                setUserYieldTokenBalance(0)
+            }
+        } catch (error) {
+            console.log('No yield token balance found:', error)
+            setUserYieldTokenBalance(0)
+        } finally {
+            setLoadingBalance(false)
+        }
+    }
+
+    // Charger le balance quand la stratégie change
+    useEffect(() => {
+        fetchUserYieldTokenBalance()
+    }, [wallet.publicKey, selectedStrategy])
+
     // Get marketplace for selected strategy
     const currentMarketplace = useMemo(() => {
-        console.log('\n=== MARKETPLACE MATCHING ===')
-        console.log('selectedStrategy:', selectedStrategy)
-        console.log('marketplacesQuery.data length:', marketplacesQuery.data?.length || 0)
-        console.log('strategiesQuery.data length:', strategiesQuery.data?.length || 0)
-
         if (!selectedStrategy || !marketplacesQuery.data || !strategiesQuery.data) {
-            console.log('Missing required data for marketplace matching')
             return null
         }
 
         // Find the strategy data to get its PDA
         const strategyData = strategiesQuery.data.find(s => s.strategyId === selectedStrategy)
-        console.log('Found strategy data:', strategyData ? {
-            strategyId: strategyData.strategyId,
-            pubkey: strategyData.pubkey.toString()
-        } : 'NOT FOUND')
 
         if (!strategyData) {
-            console.log('❌ Strategy not found for ID:', selectedStrategy)
             return null
         }
-
-        // Log all available marketplaces
-        console.log('Available marketplaces:')
-        marketplacesQuery.data.forEach((m, index) => {
-            console.log(`  ${index + 1}. Strategy: ${m.strategy.toString()}, ID: ${m.marketplaceId}`)
-        })
 
         // Find marketplace that matches this strategy's PDA
         const foundMarketplace = marketplacesQuery.data.find(m =>
             m.strategy.toString() === strategyData.pubkey.toString()
         )
-
-        console.log('Marketplace search result:', foundMarketplace ? {
-            found: true,
-            strategy: foundMarketplace.strategy.toString(),
-            marketplaceId: foundMarketplace.marketplaceId
-        } : 'NOT FOUND')
-
-        console.log('=== END MARKETPLACE MATCHING ===\n')
 
         return foundMarketplace || null
     }, [selectedStrategy, marketplacesQuery.data, strategiesQuery.data])
@@ -79,7 +96,11 @@ export function MarketplaceFeature() {
     const finalMarketplace = currentMarketplace || (selectedStrategy ? directMarketplaceCache[selectedStrategy] : null)
 
     // Get orders for current marketplace
-    const ordersQuery = getOrdersQuery(finalMarketplace?.strategy ? new PublicKey(finalMarketplace.strategy) : null)
+    const ordersQuery = getOrdersQuery(
+        finalMarketplace?.strategy
+            ? getPDAs.getMarketplacePda(new PublicKey(finalMarketplace.strategy))[0]
+            : null
+    )
 
     // Auto-select first strategy and marketplace
     useEffect(() => {
@@ -96,25 +117,11 @@ export function MarketplaceFeature() {
         }
     }, [finalMarketplace, selectedMarketplace])
 
-    // Debug logs
-    useEffect(() => {
-        console.log('Marketplace debug:', {
-            selectedStrategy,
-            marketplacesCount: marketplacesQuery.data?.length || 0,
-            strategiesCount: strategiesQuery.data?.length || 0,
-            currentMarketplace: currentMarketplace ? 'found' : 'not found',
-            marketplacesData: marketplacesQuery.data?.map(m => ({
-                strategy: m.strategy.toString(),
-                id: m.marketplaceId
-            }))
-        })
-    }, [selectedStrategy, marketplacesQuery.data, strategiesQuery.data, currentMarketplace])
+    // Supprimé les logs de debug qui causaient la boucle infinie
 
     // Effect for direct marketplace lookup fallback
     useEffect(() => {
         if (selectedStrategy && !currentMarketplace && !marketplacesQuery.isLoading && !directMarketplaceCache[selectedStrategy]) {
-            console.log('No marketplace found via global search, trying direct lookup...')
-
             const tryDirectLookup = async () => {
                 try {
                     const directMarketplace = await getMarketplaceByStrategy(selectedStrategy)
@@ -122,12 +129,8 @@ export function MarketplaceFeature() {
                         ...prev,
                         [selectedStrategy]: directMarketplace
                     }))
-
-                    if (directMarketplace) {
-                        console.log('✅ Found marketplace via direct lookup!')
-                    }
                 } catch (error) {
-                    console.warn('Direct lookup failed:', error)
+                    // Silencieux pour éviter les logs en boucle
                     setDirectMarketplaceCache(prev => ({
                         ...prev,
                         [selectedStrategy]: null
@@ -143,13 +146,11 @@ export function MarketplaceFeature() {
         if (!selectedStrategy) return
 
         try {
-            console.log('Creating marketplace for strategy:', selectedStrategy)
             await createMarketplaceMutation.mutateAsync({
                 strategyId: selectedStrategy,
                 tradingFeeBps: Number(createMarketplaceFee)
             })
             // Refresh data
-            console.log('Marketplace created successfully, refreshing data...')
             await marketplacesQuery.refetch()
         } catch (error) {
             console.error('Error creating marketplace:', error)
@@ -158,7 +159,6 @@ export function MarketplaceFeature() {
     }
 
     const handleRefreshData = async () => {
-        console.log('Refreshing all marketplace data...')
         await Promise.all([
             strategiesQuery.refetch(),
             marketplacesQuery.refetch()
@@ -183,14 +183,18 @@ export function MarketplaceFeature() {
     }
 
     const handleCreateSellOrder = async () => {
-        if (!sellAmount || !sellPrice || !finalMarketplace) return
+        if (!sellAmount || !sellPrice || !finalMarketplace || !selectedStrategy) return
 
         try {
             const yieldTokenAmount = Math.floor(Number(sellAmount) * LAMPORTS_PER_SOL)
             const pricePerToken = Math.floor(Number(sellPrice) * 1000000) // 6 decimals for price
 
+            // Calculer le vrai PDA du marketplace
+            const [marketplacePda] = getPDAs.getMarketplacePda(new PublicKey(finalMarketplace.strategy))
+
             await placeOrderMutation.mutateAsync({
-                marketplacePda: new PublicKey(finalMarketplace.strategy),
+                marketplacePda,
+                strategyId: selectedStrategy,
                 orderType: 1, // Sell order
                 yieldTokenAmount,
                 pricePerToken
@@ -199,20 +203,25 @@ export function MarketplaceFeature() {
             setSellAmount('')
             setSellPrice('')
             ordersQuery.refetch()
+            fetchUserYieldTokenBalance() // Refresh balance after sell order
         } catch (error) {
             console.error('Error creating sell order:', error)
         }
     }
 
     const handleCreateBuyOrder = async () => {
-        if (!buyAmount || !buyPrice || !finalMarketplace) return
+        if (!buyAmount || !buyPrice || !finalMarketplace || !selectedStrategy) return
 
         try {
             const yieldTokenAmount = Math.floor(Number(buyAmount) * LAMPORTS_PER_SOL)
             const pricePerToken = Math.floor(Number(buyPrice) * 1000000) // 6 decimals for price
 
+            // Calculer le vrai PDA du marketplace
+            const [marketplacePda] = getPDAs.getMarketplacePda(new PublicKey(finalMarketplace.strategy))
+
             await placeOrderMutation.mutateAsync({
-                marketplacePda: new PublicKey(finalMarketplace.strategy),
+                marketplacePda,
+                strategyId: selectedStrategy,
                 orderType: 0, // Buy order
                 yieldTokenAmount,
                 pricePerToken
@@ -230,11 +239,15 @@ export function MarketplaceFeature() {
         if (!finalMarketplace) return
 
         try {
+            // Calculer le vrai PDA du marketplace
+            const [marketplacePda] = getPDAs.getMarketplacePda(new PublicKey(finalMarketplace.strategy))
+
             await cancelOrderMutation.mutateAsync({
                 orderId,
-                marketplacePda: new PublicKey(finalMarketplace.strategy)
+                marketplacePda
             })
             ordersQuery.refetch()
+            fetchUserYieldTokenBalance() // Refresh balance after cancel order
         } catch (error) {
             console.error('Error canceling order:', error)
         }
@@ -339,11 +352,14 @@ export function MarketplaceFeature() {
                             const [buyOrderPda] = getPDAs.getOrderPda(buyOrder.user, buyOrder.orderId)
                             const [sellOrderPda] = getPDAs.getOrderPda(sellOrder.user, sellOrder.orderId)
 
+                            // Calculer le vrai PDA du marketplace
+                            const [marketplacePda] = getPDAs.getMarketplacePda(new PublicKey(finalMarketplace.strategy))
+
                             await executeTradesMutation.mutateAsync({
                                 buyOrderPda,
                                 sellOrderPda,
                                 tradeAmount,
-                                marketplacePda: new PublicKey(finalMarketplace.strategy)
+                                marketplacePda
                             })
                             // Refresh orders after successful trade
                             ordersQuery.refetch()
@@ -550,7 +566,22 @@ export function MarketplaceFeature() {
                                     </CardHeader>
                                     <CardContent className="space-y-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="sell-amount">Amount (YLD tokens)</Label>
+                                            <div className="flex justify-between items-center">
+                                                <Label htmlFor="sell-amount">Amount (YLD tokens)</Label>
+                                                <div className="text-sm text-gray-500">
+                                                    {loadingBalance ? 'Loading...' : `Balance: ${userYieldTokenBalance.toFixed(6)}`}
+                                                    {userYieldTokenBalance > 0 && (
+                                                        <Button
+                                                            variant="link"
+                                                            size="sm"
+                                                            className="ml-2 h-auto p-0 text-xs"
+                                                            onClick={() => setSellAmount(userYieldTokenBalance.toString())}
+                                                        >
+                                                            Max
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
                                             <Input
                                                 id="sell-amount"
                                                 type="number"
@@ -558,6 +589,7 @@ export function MarketplaceFeature() {
                                                 value={sellAmount}
                                                 onChange={(e) => setSellAmount(e.target.value)}
                                                 step="0.000001"
+                                                max={userYieldTokenBalance}
                                             />
                                         </div>
                                         <div className="space-y-2">

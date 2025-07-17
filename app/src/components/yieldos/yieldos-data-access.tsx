@@ -1184,6 +1184,8 @@ export function useMarketplace() {
         staleTime: 30000,
         gcTime: 60000,
         refetchOnWindowFocus: false,
+        retry: 2, // Limite le nombre de retry
+        retryDelay: 1000, // Délai entre les retry
     })
 
     // Query pour récupérer les ordres actifs d'un marketplace
@@ -1268,6 +1270,8 @@ export function useMarketplace() {
         staleTime: 15000,
         gcTime: 60000,
         refetchOnWindowFocus: false,
+        retry: 2, // Limite le nombre de retry
+        retryDelay: 1000, // Délai entre les retry
     })
 
     // Mutation pour créer un marketplace
@@ -1341,11 +1345,13 @@ export function useMarketplace() {
     const placeOrderMutation = useMutation({
         mutationFn: async ({
             marketplacePda,
+            strategyId,
             orderType,
             yieldTokenAmount,
             pricePerToken
         }: {
             marketplacePda: PublicKey,
+            strategyId: number,
             orderType: number,
             yieldTokenAmount: number,
             pricePerToken: number
@@ -1369,14 +1375,24 @@ export function useMarketplace() {
             const [orderPda] = getPDAs.getOrderPda(wallet.publicKey, orderId)
             const [escrowPda] = getPDAs.getEscrowPda(orderPda)
 
-            // Get marketplace data to find token mints
-            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
-            if (!marketplaceAccount) throw new Error('Marketplace not found')
+            // Calculer les PDAs pour les token mints
+            const [strategyPda] = getPDAs.getStrategyPda(strategyId)
+            const [yieldTokenMint] = getPDAs.getYieldTokenMintPda(strategyId)
 
-            let offset = 40 // Skip admin + strategy
-            const yieldTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
-            offset += 32
-            const underlyingTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+            // Récupérer l'underlying token depuis la stratégie
+            let underlyingTokenMint: PublicKey
+            try {
+                const strategyAccount = await connection.getAccountInfo(strategyPda)
+                if (!strategyAccount) {
+                    throw new Error(`Strategy ${strategyId} not found`)
+                }
+                // L'underlying token est à l'offset 40 (discriminator 8 + admin 32)
+                const underlyingTokenBytes = strategyAccount.data.subarray(40, 72)
+                underlyingTokenMint = new PublicKey(underlyingTokenBytes)
+            } catch (parseError) {
+                console.warn('Failed to parse underlying token, using WSOL:', parseError)
+                underlyingTokenMint = new PublicKey('So11111111111111111111111111111111111111112')
+            }
 
             // Get user token accounts
             const userYieldTokenAccount = await getAssociatedTokenAddress(yieldTokenMint, wallet.publicKey)
