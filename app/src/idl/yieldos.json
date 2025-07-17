@@ -1,0 +1,1848 @@
+{
+  "address": "9dEwdrEo7Tu9eTW3S3opbJa1fyyppRGPpdn8CqBxJX27",
+  "metadata": {
+    "name": "contracts",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "cancel_order",
+      "discriminator": [
+        95,
+        129,
+        237,
+        240,
+        8,
+        49,
+        223,
+        132
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "marketplace",
+          "writable": true
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_account",
+          "docs": [
+            "Escrow account holding tokens"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_token_account",
+          "docs": [
+            "User's token account to receive refund"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "order_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_yield",
+      "docs": [
+        "Claim accumulated yield from a strategy"
+      ],
+      "discriminator": [
+        49,
+        74,
+        111,
+        7,
+        186,
+        22,
+        61,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "yield_token_mint",
+          "docs": [
+            "Yield token mint for this strategy"
+          ],
+          "writable": true
+        },
+        {
+          "name": "user_yield_token_account",
+          "docs": [
+            "User's yield token account"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "strategy_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "create_marketplace",
+      "discriminator": [
+        6,
+        47,
+        242,
+        139,
+        213,
+        113,
+        5,
+        220
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategy",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "marketplace",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  112,
+                  108,
+                  97,
+                  99,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "marketplace_counter",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116,
+                  112,
+                  108,
+                  97,
+                  99,
+                  101,
+                  95,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "yield_token_mint",
+          "docs": [
+            "Yield token mint for this strategy"
+          ]
+        },
+        {
+          "name": "underlying_token_mint",
+          "docs": [
+            "Underlying token mint"
+          ]
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "strategy_id",
+          "type": "u64"
+        },
+        {
+          "name": "marketplace_id",
+          "type": "u64"
+        },
+        {
+          "name": "trading_fee_bps",
+          "type": "u16"
+        }
+      ]
+    },
+    {
+      "name": "create_strategy",
+      "docs": [
+        "Create a new yield strategy (admin only)"
+      ],
+      "discriminator": [
+        152,
+        160,
+        107,
+        148,
+        245,
+        190,
+        127,
+        224
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy_counter",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlying_token",
+          "docs": [
+            "The underlying token mint (SOL, USDC, etc.)"
+          ]
+        },
+        {
+          "name": "yield_token_mint",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  121,
+                  105,
+                  101,
+                  108,
+                  100,
+                  95,
+                  116,
+                  111,
+                  107,
+                  101,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "apy_basis_points",
+          "type": "u16"
+        },
+        {
+          "name": "strategy_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "deposit_to_strategy",
+      "docs": [
+        "Deposit tokens into a specific strategy"
+      ],
+      "discriminator": [
+        193,
+        61,
+        195,
+        221,
+        81,
+        161,
+        9,
+        170
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "underlying_token_mint",
+          "docs": [
+            "The underlying token mint"
+          ]
+        },
+        {
+          "name": "user_underlying_token",
+          "docs": [
+            "User's token account for the underlying token"
+          ],
+          "writable": true
+        },
+        {
+          "name": "strategy_vault",
+          "docs": [
+            "Strategy's vault for holding underlying tokens"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "yield_token_mint",
+          "docs": [
+            "Yield token mint for this strategy"
+          ],
+          "writable": true
+        },
+        {
+          "name": "user_yield_token_account",
+          "docs": [
+            "User's yield token account (will be created if needed)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "yield_token_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "strategy_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "execute_trade",
+      "discriminator": [
+        77,
+        16,
+        192,
+        135,
+        13,
+        0,
+        106,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "executor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "marketplace",
+          "writable": true
+        },
+        {
+          "name": "buy_order",
+          "docs": [
+            "Buy order"
+          ],
+          "writable": true
+        },
+        {
+          "name": "sell_order",
+          "docs": [
+            "Sell order"
+          ],
+          "writable": true
+        },
+        {
+          "name": "buy_order_escrow",
+          "docs": [
+            "Buy order escrow (contains underlying tokens)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buy_order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "sell_order_escrow",
+          "docs": [
+            "Sell order escrow (contains yield tokens)"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "sell_order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "buyer_yield_token_account",
+          "docs": [
+            "Buyer's yield token account (receives yield tokens)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "buyer_underlying_token_account",
+          "docs": [
+            "Buyer's underlying token account (for fee collection)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "seller_underlying_token_account",
+          "docs": [
+            "Seller's underlying token account (receives payment)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "fee_collection_account",
+          "docs": [
+            "Marketplace fee collection account"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "trade_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_protocol",
+      "docs": [
+        "Initialize the Yieldos protocol"
+      ],
+      "discriminator": [
+        188,
+        233,
+        252,
+        106,
+        134,
+        146,
+        202,
+        91
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategy_counter",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "place_order",
+      "discriminator": [
+        51,
+        194,
+        155,
+        175,
+        109,
+        130,
+        96,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "marketplace",
+          "writable": true
+        },
+        {
+          "name": "order",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "arg",
+                "path": "order_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "order_counter",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  114,
+                  100,
+                  101,
+                  114,
+                  95,
+                  99,
+                  111,
+                  117,
+                  110,
+                  116,
+                  101,
+                  114
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "yield_token_mint",
+          "docs": [
+            "Yield token mint"
+          ]
+        },
+        {
+          "name": "underlying_token_mint",
+          "docs": [
+            "Underlying token mint"
+          ]
+        },
+        {
+          "name": "user_yield_token_account",
+          "docs": [
+            "User's yield token account (for sell orders)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "user_underlying_token_account",
+          "docs": [
+            "User's underlying token account (for buy orders)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "escrow_account",
+          "docs": [
+            "Escrow account for holding tokens during order"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "order"
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "order_id",
+          "type": "u64"
+        },
+        {
+          "name": "order_type",
+          "type": "u8"
+        },
+        {
+          "name": "yield_token_amount",
+          "type": "u64"
+        },
+        {
+          "name": "price_per_token",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "redeem_yield_tokens",
+      "discriminator": [
+        121,
+        225,
+        160,
+        37,
+        49,
+        202,
+        39,
+        37
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy_vault",
+          "docs": [
+            "Strategy's vault for underlying tokens"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "yield_token_mint",
+          "docs": [
+            "Yield token mint for this strategy"
+          ],
+          "writable": true
+        },
+        {
+          "name": "user_yield_token_account",
+          "docs": [
+            "User's yield token account (tokens will be burned from here)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "user_underlying_token",
+          "docs": [
+            "User's underlying token account (will receive SOL + yield)"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "yield_token_amount",
+          "type": "u64"
+        },
+        {
+          "name": "strategy_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_from_strategy",
+      "docs": [
+        "Withdraw principal from a strategy"
+      ],
+      "discriminator": [
+        140,
+        239,
+        65,
+        54,
+        125,
+        128,
+        223,
+        125
+      ],
+      "accounts": [
+        {
+          "name": "user",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategy",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  101,
+                  114,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "user"
+              },
+              {
+                "kind": "account",
+                "path": "strategy"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategy_vault",
+          "docs": [
+            "Strategy's vault for underlying tokens"
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  121,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "strategy_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "user_underlying_token",
+          "docs": [
+            "User's token account for receiving underlying tokens"
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "strategy_id",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Marketplace",
+      "discriminator": [
+        70,
+        222,
+        41,
+        62,
+        78,
+        3,
+        32,
+        174
+      ]
+    },
+    {
+      "name": "MarketplaceCounter",
+      "discriminator": [
+        37,
+        216,
+        70,
+        234,
+        111,
+        16,
+        108,
+        17
+      ]
+    },
+    {
+      "name": "OrderCounter",
+      "discriminator": [
+        124,
+        210,
+        2,
+        119,
+        178,
+        200,
+        59,
+        95
+      ]
+    },
+    {
+      "name": "Strategy",
+      "discriminator": [
+        174,
+        110,
+        39,
+        119,
+        82,
+        106,
+        169,
+        102
+      ]
+    },
+    {
+      "name": "StrategyCounter",
+      "discriminator": [
+        227,
+        179,
+        54,
+        37,
+        154,
+        29,
+        151,
+        214
+      ]
+    },
+    {
+      "name": "TradeOrder",
+      "discriminator": [
+        58,
+        252,
+        74,
+        166,
+        147,
+        29,
+        238,
+        173
+      ]
+    },
+    {
+      "name": "UserPosition",
+      "discriminator": [
+        251,
+        248,
+        209,
+        245,
+        83,
+        234,
+        17,
+        27
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "StrategyNotActive",
+      "msg": "Strategy is not active"
+    },
+    {
+      "code": 6001,
+      "name": "UnauthorizedUser",
+      "msg": "Unauthorized user for this position"
+    },
+    {
+      "code": 6002,
+      "name": "InsufficientBalance",
+      "msg": "Insufficient balance"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidAmount",
+      "msg": "Invalid withdrawal amount"
+    }
+  ],
+  "types": [
+    {
+      "name": "Marketplace",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "Admin who manages the marketplace"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "strategy",
+            "docs": [
+              "Strategy this marketplace is for"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "yield_token_mint",
+            "docs": [
+              "Yield token being traded"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "underlying_token_mint",
+            "docs": [
+              "Underlying token for pricing"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "total_volume",
+            "docs": [
+              "Total trading volume"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_trades",
+            "docs": [
+              "Total number of trades executed"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "best_bid_price",
+            "docs": [
+              "Current best bid price (in underlying tokens per yield token)",
+              "Price format: fixed-point with 6 decimals (1000000 = 1.0)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "best_ask_price",
+            "docs": [
+              "Current best ask price (in underlying tokens per yield token)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "trading_fee_bps",
+            "docs": [
+              "Trading fee in basis points (100 = 1%)"
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "is_active",
+            "docs": [
+              "Whether trading is enabled"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "When the marketplace was created"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "marketplace_id",
+            "docs": [
+              "Marketplace ID"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MarketplaceCounter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "count",
+            "docs": [
+              "Current marketplace count for ID generation"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OrderCounter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "count",
+            "docs": [
+              "Current order count for ID generation"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Strategy",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "docs": [
+              "Admin who created and manages this strategy"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "underlying_token",
+            "docs": [
+              "The underlying token that users deposit (SOL, USDC, etc.)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "yield_token_mint",
+            "docs": [
+              "The yield token mint for this strategy (yYieldos, yUSDC, etc.)"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "name",
+            "docs": [
+              "Strategy name (e.g., \"Yieldos Staking Strategy\")"
+            ],
+            "type": "string"
+          },
+          {
+            "name": "apy",
+            "docs": [
+              "Annual Percentage Yield in basis points (1000 = 10.00%)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_deposits",
+            "docs": [
+              "Total amount deposited in this strategy"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "is_active",
+            "docs": [
+              "Whether this strategy is currently accepting deposits"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "When this strategy was created"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "total_yield_tokens_minted",
+            "docs": [
+              "Total yield tokens minted for this strategy"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "strategy_id",
+            "docs": [
+              "Strategy ID for easy identification"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StrategyCounter",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "count",
+            "docs": [
+              "Current strategy count for ID generation"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TradeOrder",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "docs": [
+              "User who placed the order"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "marketplace",
+            "docs": [
+              "Marketplace this order belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "order_type",
+            "docs": [
+              "Order type: 0 = Buy, 1 = Sell"
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "yield_token_amount",
+            "docs": [
+              "Amount of yield tokens"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "price_per_token",
+            "docs": [
+              "Price per yield token (in underlying tokens)",
+              "Fixed-point with 6 decimals"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_value",
+            "docs": [
+              "Total value of the order (amount * price)"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "filled_amount",
+            "docs": [
+              "Amount already filled"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "is_active",
+            "docs": [
+              "Whether the order is still active"
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "created_at",
+            "docs": [
+              "When the order was created"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "order_id",
+            "docs": [
+              "Order ID for tracking"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "UserPosition",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "user",
+            "docs": [
+              "The user who owns this position"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "strategy",
+            "docs": [
+              "The strategy this position belongs to"
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "deposited_amount",
+            "docs": [
+              "Principal amount deposited by the user"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "yield_tokens_minted",
+            "docs": [
+              "Yield tokens minted to this user"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "deposit_time",
+            "docs": [
+              "When the user made the deposit"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "last_yield_claim",
+            "docs": [
+              "Last time the user claimed yield (for continuous yield calculation)"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "total_yield_claimed",
+            "docs": [
+              "Total yield claimed by this user"
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "position_id",
+            "docs": [
+              "Position ID for easy tracking"
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}

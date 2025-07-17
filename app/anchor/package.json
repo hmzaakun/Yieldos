@@ -9,6 +9,7 @@
         "analytics": "ts-node scripts/analytics.ts"
     },
     "devDependencies": {
+        "@types/bs58": "^4.0.4",
         "ts-node": "^10.9.2",
         "typescript": "^5.0.0"
     }

@@ -25,3 +25,4 @@ upgradeable = false
 
 [scripts]
 test = "../node_modules/.bin/jest --preset ts-jest"
+create-strategy = "npx ts-node scripts/create-strategy.ts"
