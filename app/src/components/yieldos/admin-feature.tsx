@@ -1,6 +1,7 @@
 'use client'
 
 import { AppHero } from '@/components/app-hero'
+import { useProtocolStats, useStrategiesAnalytics } from './yieldos-analytics'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,26 +12,14 @@ import { useWallet } from '@solana/wallet-adapter-react'
 
 export function AdminFeature() {
     const wallet = useWallet()
+    const { stats: protocolStats, isLoading: statsLoading } = useProtocolStats()
+    const { strategies, isLoading: strategiesLoading } = useStrategiesAnalytics()
     const [newStrategyName, setNewStrategyName] = useState('')
     const [newStrategyApy, setNewStrategyApy] = useState('')
     const [protocolFee, setProtocolFee] = useState('100')
 
     // Check if user is admin (mock check)
     const isAdmin = wallet.publicKey?.toString() === '7JS6XpnoEJDcrzUzg3K7dnpzK2pxYJAdQr5CaREzEHNt'
-
-    const protocolStats = {
-        totalValueLocked: 1234567.89,
-        totalUsers: 2847,
-        totalStrategies: 12,
-        totalVolume: 9876543.21,
-        protocolRevenue: 12345.67
-    }
-
-    const strategies = [
-        { id: 1, name: 'High Yield USDC', apy: '12.00%', tvl: '$456,789', status: 'active' },
-        { id: 2, name: 'SOL Staking Plus', apy: '8.50%', tvl: '$234,567', status: 'active' },
-        { id: 3, name: 'Multi-Asset Yield', apy: '15.20%', tvl: '$123,456', status: 'paused' },
-    ]
 
     const handleCreateStrategy = () => {
         if (!newStrategyName || !newStrategyApy) return
@@ -93,8 +82,8 @@ export function AdminFeature() {
                         <span className="text-2xl">💰</span>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">${protocolStats.totalValueLocked.toLocaleString()}</div>
-                        <p className="text-xs text-green-600">+20.1% from last month</p>
+                        <div className="text-2xl font-bold">{protocolStats.totalValueLocked.toLocaleString()} tokens</div>
+                        <p className="text-xs text-green-600">Status: {protocolStats.protocolStatus}</p>
                     </CardContent>
                 </Card>
 
@@ -105,7 +94,7 @@ export function AdminFeature() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{protocolStats.totalUsers.toLocaleString()}</div>
-                        <p className="text-xs text-green-600">+180 this month</p>
+                        <p className="text-xs text-green-600">Estimated active users</p>
                     </CardContent>
                 </Card>
 
@@ -116,29 +105,29 @@ export function AdminFeature() {
                     </CardHeader>
                     <CardContent>
                         <div className="text-2xl font-bold">{protocolStats.totalStrategies}</div>
-                        <p className="text-xs text-blue-600">+2 new this week</p>
+                        <p className="text-xs text-blue-600">Live strategies</p>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Total Volume</CardTitle>
+                        <CardTitle className="text-sm font-medium">Network</CardTitle>
                         <span className="text-2xl">📈</span>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">${protocolStats.totalVolume.toLocaleString()}</div>
-                        <p className="text-xs text-green-600">+15.2% from last week</p>
+                        <div className="text-2xl font-bold">Devnet</div>
+                        <p className="text-xs text-green-600">Solana blockchain</p>
                     </CardContent>
                 </Card>
 
                 <Card>
                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                        <CardTitle className="text-sm font-medium">Protocol Revenue</CardTitle>
+                        <CardTitle className="text-sm font-medium">Protocol Fee</CardTitle>
                         <span className="text-2xl">💎</span>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">${protocolStats.protocolRevenue.toLocaleString()}</div>
-                        <p className="text-xs text-green-600">+8.7% from last month</p>
+                        <div className="text-2xl font-bold">1.0%</div>
+                        <p className="text-xs text-green-600">Current fee rate</p>
                     </CardContent>
                 </Card>
             </div>
@@ -222,44 +211,51 @@ export function AdminFeature() {
                     <CardDescription>Monitor and control all active strategies</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Strategy</TableHead>
-                                <TableHead>APY</TableHead>
-                                <TableHead>TVL</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead>Actions</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {strategies.map((strategy) => (
-                                <TableRow key={strategy.id}>
-                                    <TableCell className="font-medium">{strategy.name}</TableCell>
-                                    <TableCell>{strategy.apy}</TableCell>
-                                    <TableCell>{strategy.tvl}</TableCell>
-                                    <TableCell>
-                                        <span className={`px-2 py-1 rounded text-xs ${strategy.status === 'active'
-                                                ? 'bg-green-100 text-green-800'
-                                                : 'bg-yellow-100 text-yellow-800'
-                                            }`}>
-                                            {strategy.status}
-                                        </span>
-                                    </TableCell>
-                                    <TableCell>
-                                        <div className="flex space-x-2">
-                                            <Button size="sm" variant="outline">
-                                                {strategy.status === 'active' ? 'Pause' : 'Resume'}
-                                            </Button>
-                                            <Button size="sm" variant="outline">
-                                                Edit
-                                            </Button>
-                                        </div>
-                                    </TableCell>
+                    {strategiesLoading ? (
+                        <div className="text-center py-8">
+                            <p className="text-muted-foreground">Loading strategies...</p>
+                        </div>
+                    ) : strategies.length === 0 ? (
+                        <div className="text-center py-8">
+                            <p className="text-muted-foreground">No strategies found</p>
+                        </div>
+                    ) : (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Strategy</TableHead>
+                                    <TableHead>APY</TableHead>
+                                    <TableHead>TVL</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead>Actions</TableHead>
                                 </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
+                            </TableHeader>
+                            <TableBody>
+                                {strategies.map((strategy) => (
+                                    <TableRow key={strategy.id}>
+                                        <TableCell className="font-medium">{strategy.name}</TableCell>
+                                        <TableCell>{(strategy.apy / 100).toFixed(2)}%</TableCell>
+                                        <TableCell>{strategy.totalLocked.toFixed(0)} tokens</TableCell>
+                                        <TableCell>
+                                            <span className="px-2 py-1 rounded text-xs bg-green-100 text-green-800">
+                                                active
+                                            </span>
+                                        </TableCell>
+                                        <TableCell>
+                                            <div className="flex space-x-2">
+                                                <Button size="sm" variant="outline">
+                                                    Pause
+                                                </Button>
+                                                <Button size="sm" variant="outline">
+                                                    Edit
+                                                </Button>
+                                            </div>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
                 </CardContent>
             </Card>
 

@@ -76,18 +76,9 @@ export function useYieldosProgram() {
     }, [connection, wallet])
 
     const program = useMemo(() => {
-        if (!provider) return null
-
-        // IDL simplifié pour les besoins du frontend
-        const idl: YieldosProgram = {
-            version: "0.1.0",
-            name: "contracts",
-            instructions: [],
-            accounts: [],
-            types: []
-        }
-
-        return new Program(idl as any, provider)
+        // Pour l'instant, on n'utilise pas le Program d'Anchor pour éviter les problèmes d'IDL
+        // On utilise directement les requêtes RPC via connection
+        return null
     }, [provider])
 
     // Utilitaires pour les PDAs
@@ -129,7 +120,7 @@ export function useYieldosProgram() {
     const strategiesQuery = useQuery({
         queryKey: ['yieldos', 'strategies', { cluster: cluster.name }],
         queryFn: async () => {
-            if (!program) throw new Error('Program not initialized')
+            if (!connection) throw new Error('Connection not available')
 
             try {
                 // Récupérer toutes les stratégies via RPC
@@ -151,14 +142,14 @@ export function useYieldosProgram() {
                 return []
             }
         },
-        enabled: !!program
+        enabled: !!connection
     })
 
     // Query pour récupérer une stratégie spécifique
     const getStrategyQuery = (strategyId: number) => useQuery({
         queryKey: ['yieldos', 'strategy', strategyId, { cluster: cluster.name }],
         queryFn: async () => {
-            if (!program) throw new Error('Program not initialized')
+            if (!connection) throw new Error('Connection not available')
 
             const [strategyPda] = getPDAs.getStrategyPda(strategyId)
 
@@ -178,14 +169,14 @@ export function useYieldosProgram() {
                 throw error
             }
         },
-        enabled: !!program
+        enabled: !!connection
     })
 
     // Query pour les positions utilisateur
     const userPositionsQuery = useQuery({
         queryKey: ['yieldos', 'userPositions', wallet.publicKey?.toString(), { cluster: cluster.name }],
         queryFn: async () => {
-            if (!program || !wallet.publicKey) throw new Error('Wallet not connected')
+            if (!connection || !wallet.publicKey) throw new Error('Wallet not connected')
 
             try {
                 const accounts = await connection.getProgramAccounts(YIELDOS_PROGRAM_ID, {
@@ -205,7 +196,7 @@ export function useYieldosProgram() {
                 return []
             }
         },
-        enabled: !!program && !!wallet.publicKey
+        enabled: !!connection && !!wallet.publicKey
     })
 
     return {
@@ -216,21 +207,21 @@ export function useYieldosProgram() {
         strategiesQuery,
         getStrategyQuery,
         userPositionsQuery,
-        cluster
+        cluster,
+        connection
     }
 }
 
 // Hook pour interagir avec une stratégie spécifique
 export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
-    const { program, provider, getPDAs } = useYieldosProgram()
-    const { connection } = useConnection()
+    const { connection, provider, getPDAs } = useYieldosProgram()
     const wallet = useWallet()
     const transactionToast = useTransactionToast()
 
     const strategyQuery = useQuery({
         queryKey: ['yieldos', 'strategy', strategyId],
         queryFn: async () => {
-            if (!program) throw new Error('Program not initialized')
+            if (!connection) throw new Error('Connection not available')
 
             const [strategyPda] = getPDAs.getStrategyPda(strategyId)
             const accountInfo = await connection.getAccountInfo(strategyPda)
@@ -244,14 +235,14 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
                 account: accountInfo
             }
         },
-        enabled: !!program
+        enabled: !!connection
     })
 
     // Mutation pour depositer dans une stratégie
     const depositMutation = useMutation({
         mutationKey: ['yieldos', 'deposit', strategyId],
         mutationFn: async ({ amount }: { amount: number }) => {
-            if (!program || !wallet.publicKey || !provider) {
+            if (!connection || !wallet.publicKey || !provider) {
                 throw new Error('Wallet not connected')
             }
 
@@ -275,7 +266,7 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
     const withdrawMutation = useMutation({
         mutationKey: ['yieldos', 'withdraw', strategyId],
         mutationFn: async ({ amount }: { amount: number }) => {
-            if (!program || !wallet.publicKey) {
+            if (!connection || !wallet.publicKey) {
                 throw new Error('Wallet not connected')
             }
 

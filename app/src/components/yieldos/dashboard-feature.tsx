@@ -2,7 +2,7 @@
 
 import { AppHero } from '@/components/app-hero'
 import { UserPortfolio } from './yieldos-ui'
-import { useYieldosProgram } from './yieldos-data-access'
+import { useUserPortfolioAnalytics } from './yieldos-analytics'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -11,17 +11,9 @@ import Link from 'next/link'
 
 export function DashboardFeature() {
     const wallet = useWallet()
-    const { userPositionsQuery } = useYieldosProgram()
+    const { portfolio, positions, isLoading } = useUserPortfolioAnalytics()
 
-    // Mock analytics data
-    const portfolioStats = {
-        totalValue: 1234.56,
-        totalYield: 123.45,
-        dailyEarnings: 3.42,
-        apy: 12.5,
-        positionsCount: 3
-    }
-
+    // Mock recent transactions (cette partie sera connectée plus tard aux événements on-chain)
     const recentTransactions = [
         { id: 1, type: 'deposit', strategy: 'Strategy #1', amount: '1000.00', date: '2024-01-15', status: 'completed' },
         { id: 2, type: 'yield', strategy: 'Strategy #1', amount: '+12.34', date: '2024-01-14', status: 'completed' },
@@ -63,8 +55,8 @@ export function DashboardFeature() {
                         <span className="text-2xl">💰</span>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">${portfolioStats.totalValue.toFixed(2)}</div>
-                        <p className="text-xs text-green-600">+{portfolioStats.dailyEarnings.toFixed(2)} today</p>
+                        <div className="text-2xl font-bold">${portfolio.totalValue.toFixed(2)}</div>
+                        <p className="text-xs text-green-600">+{(portfolio.estimatedAnnualIncome / 365).toFixed(2)} daily est.</p>
                     </CardContent>
                 </Card>
 
@@ -74,8 +66,8 @@ export function DashboardFeature() {
                         <span className="text-2xl">📈</span>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">${portfolioStats.totalYield.toFixed(2)}</div>
-                        <p className="text-xs text-muted-foreground">All time earnings</p>
+                        <div className="text-2xl font-bold">${portfolio.estimatedAnnualIncome.toFixed(2)}</div>
+                        <p className="text-xs text-muted-foreground">Estimated annual income</p>
                     </CardContent>
                 </Card>
 
@@ -85,7 +77,7 @@ export function DashboardFeature() {
                         <span className="text-2xl">🎯</span>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{portfolioStats.apy}%</div>
+                        <div className="text-2xl font-bold">{portfolio.averageAPY.toFixed(1)}%</div>
                         <p className="text-xs text-muted-foreground">Across all positions</p>
                     </CardContent>
                 </Card>
@@ -96,7 +88,7 @@ export function DashboardFeature() {
                         <span className="text-2xl">📊</span>
                     </CardHeader>
                     <CardContent>
-                        <div className="text-2xl font-bold">{portfolioStats.positionsCount}</div>
+                        <div className="text-2xl font-bold">{positions.length}</div>
                         <p className="text-xs text-muted-foreground">Strategies joined</p>
                     </CardContent>
                 </Card>
@@ -166,8 +158,8 @@ export function DashboardFeature() {
                                 <TableRow key={tx.id}>
                                     <TableCell>
                                         <span className={`capitalize px-2 py-1 rounded text-xs ${tx.type === 'deposit' ? 'bg-blue-100 text-blue-800' :
-                                                tx.type === 'yield' ? 'bg-green-100 text-green-800' :
-                                                    'bg-purple-100 text-purple-800'
+                                            tx.type === 'yield' ? 'bg-green-100 text-green-800' :
+                                                'bg-purple-100 text-purple-800'
                                             }`}>
                                             {tx.type}
                                         </span>

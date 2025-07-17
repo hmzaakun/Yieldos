@@ -14,6 +14,9 @@ export function StrategiesPageFeature() {
     const [newStrategyName, setNewStrategyName] = useState('')
     const [newStrategyApy, setNewStrategyApy] = useState('')
 
+    // Check if user is admin (même logique que dans admin-feature)
+    const isAdmin = wallet.publicKey?.toString() === '7JS6XpnoEJDcrzUzg3K7dnpzK2pxYJAdQr5CaREzEHNt'
+
     const handleCreateStrategy = async () => {
         if (!newStrategyName || !newStrategyApy) return
 
@@ -43,43 +46,45 @@ export function StrategiesPageFeature() {
             ) : (
                 <>
                     {/* Create New Strategy (Admin Only) */}
-                    <Card>
-                        <CardHeader>
-                            <CardTitle>Create New Strategy</CardTitle>
-                            <CardDescription>
-                                Launch a new yield strategy (Admin only)
-                            </CardDescription>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                            <div className="grid gap-4 md:grid-cols-2">
-                                <div className="space-y-2">
-                                    <Label htmlFor="strategy-name">Strategy Name</Label>
-                                    <Input
-                                        id="strategy-name"
-                                        placeholder="e.g. High Yield USDC"
-                                        value={newStrategyName}
-                                        onChange={(e) => setNewStrategyName(e.target.value)}
-                                    />
+                    {isAdmin && (
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Create New Strategy</CardTitle>
+                                <CardDescription>
+                                    Launch a new yield strategy (Admin only)
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="strategy-name">Strategy Name</Label>
+                                        <Input
+                                            id="strategy-name"
+                                            placeholder="e.g. High Yield USDC"
+                                            value={newStrategyName}
+                                            onChange={(e) => setNewStrategyName(e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="strategy-apy">APY (basis points)</Label>
+                                        <Input
+                                            id="strategy-apy"
+                                            type="number"
+                                            placeholder="e.g. 1200 (12%)"
+                                            value={newStrategyApy}
+                                            onChange={(e) => setNewStrategyApy(e.target.value)}
+                                        />
+                                    </div>
                                 </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="strategy-apy">APY (basis points)</Label>
-                                    <Input
-                                        id="strategy-apy"
-                                        type="number"
-                                        placeholder="e.g. 1200 (12%)"
-                                        value={newStrategyApy}
-                                        onChange={(e) => setNewStrategyApy(e.target.value)}
-                                    />
-                                </div>
-                            </div>
-                            <Button
-                                onClick={handleCreateStrategy}
-                                disabled={!newStrategyName || !newStrategyApy}
-                            >
-                                Create Strategy
-                            </Button>
-                        </CardContent>
-                    </Card>
+                                <Button
+                                    onClick={handleCreateStrategy}
+                                    disabled={!newStrategyName || !newStrategyApy}
+                                >
+                                    Create Strategy
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    )}
 
                     {/* Strategies List */}
                     <StrategiesList />
