@@ -135,9 +135,37 @@ export function useYieldosProgram() {
             )
         },
 
-        getMarketplacePda: () => {
+        getMarketplacePda: (strategyPda: PublicKey) => {
             return PublicKey.findProgramAddressSync(
-                [Buffer.from("marketplace")],
+                [Buffer.from("marketplace"), strategyPda.toBuffer()],
+                YIELDOS_PROGRAM_ID
+            )
+        },
+
+        getMarketplaceCounterPda: () => {
+            return PublicKey.findProgramAddressSync(
+                [Buffer.from("marketplace_counter")],
+                YIELDOS_PROGRAM_ID
+            )
+        },
+
+        getOrderPda: (user: PublicKey, orderId: number) => {
+            return PublicKey.findProgramAddressSync(
+                [Buffer.from("order"), user.toBuffer(), new anchor.BN(orderId).toArrayLike(Buffer, "le", 8)],
+                YIELDOS_PROGRAM_ID
+            )
+        },
+
+        getOrderCounterPda: () => {
+            return PublicKey.findProgramAddressSync(
+                [Buffer.from("order_counter")],
+                YIELDOS_PROGRAM_ID
+            )
+        },
+
+        getEscrowPda: (orderPda: PublicKey) => {
+            return PublicKey.findProgramAddressSync(
+                [Buffer.from("escrow"), orderPda.toBuffer()],
                 YIELDOS_PROGRAM_ID
             )
         }
@@ -974,5 +1002,507 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
         getTokenRequirements,
         getUserYieldTokenBalance,
         getUserPosition
+    }
+}
+
+// Types pour le marketplace
+export interface MarketplaceData {
+    admin: PublicKey
+    strategy: PublicKey
+    yieldTokenMint: PublicKey
+    underlyingTokenMint: PublicKey
+    totalVolume: number
+    totalTrades: number
+    bestBidPrice: number
+    bestAskPrice: number
+    tradingFeeBps: number
+    isActive: boolean
+    createdAt: number
+    marketplaceId: number
+}
+
+export interface TradeOrderData {
+    user: PublicKey
+    marketplace: PublicKey
+    orderType: number // 0 = Buy, 1 = Sell
+    yieldTokenAmount: number
+    pricePerToken: number
+    totalValue: number
+    filledAmount: number
+    isActive: boolean
+    createdAt: number
+    orderId: number
+}
+
+export function useMarketplace() {
+    const { connection } = useConnection()
+    const wallet = useWallet()
+    const { cluster } = useCluster()
+    const transactionToast = useTransactionToast()
+    const { program, getPDAs } = useYieldosProgram()
+
+    // Query pour récupérer tous les marketplaces
+    const marketplacesQuery = useQuery({
+        queryKey: ['yieldos', 'marketplaces', { cluster: cluster.name }],
+        queryFn: async (): Promise<MarketplaceData[]> => {
+            if (!connection) throw new Error('Connection not available')
+
+            try {
+                // Récupérer tous les comptes du programme et filtrer manuellement
+                const accounts = await connection.getProgramAccounts(YIELDOS_PROGRAM_ID)
+
+                console.log(`Found ${accounts.length} total program accounts`)
+
+                // Filtrer pour ne garder que les marketplaces (basé sur la taille du compte)
+                const marketplaceAccounts = accounts.filter(account => {
+                    // Les comptes Marketplace ont une taille spécifique
+                    const expectedSize = 8 + 32 + 32 + 32 + 32 + 8 + 8 + 8 + 8 + 2 + 1 + 8 + 8 // voir marketplace.rs
+                    return account.account.data.length === expectedSize
+                })
+
+                console.log(`Found ${marketplaceAccounts.length} marketplace accounts`)
+
+                const marketplaces: MarketplaceData[] = []
+
+                for (const account of marketplaceAccounts) {
+                    try {
+                        const data = account.account.data
+                        let offset = 8 // Skip discriminator
+
+                        // Parse marketplace data
+                        const admin = new PublicKey(data.subarray(offset, offset + 32))
+                        offset += 32
+                        const strategy = new PublicKey(data.subarray(offset, offset + 32))
+                        offset += 32
+                        const yieldTokenMint = new PublicKey(data.subarray(offset, offset + 32))
+                        offset += 32
+                        const underlyingTokenMint = new PublicKey(data.subarray(offset, offset + 32))
+                        offset += 32
+                        const totalVolume = Number(data.readBigUInt64LE(offset))
+                        offset += 8
+                        const totalTrades = Number(data.readBigUInt64LE(offset))
+                        offset += 8
+                        const bestBidPrice = Number(data.readBigUInt64LE(offset))
+                        offset += 8
+                        const bestAskPrice = Number(data.readBigUInt64LE(offset))
+                        offset += 8
+                        const tradingFeeBps = data.readUInt16LE(offset)
+                        offset += 2
+                        const isActive = data.readUInt8(offset) === 1
+                        offset += 1
+                        const createdAt = Number(data.readBigInt64LE(offset))
+                        offset += 8
+                        const marketplaceId = Number(data.readBigUInt64LE(offset))
+
+                        marketplaces.push({
+                            admin,
+                            strategy,
+                            yieldTokenMint,
+                            underlyingTokenMint,
+                            totalVolume,
+                            totalTrades,
+                            bestBidPrice,
+                            bestAskPrice,
+                            tradingFeeBps,
+                            isActive,
+                            createdAt,
+                            marketplaceId
+                        })
+                    } catch (parseError) {
+                        console.warn('Error parsing marketplace account:', parseError)
+                    }
+                }
+
+                return marketplaces
+            } catch (error) {
+                console.error('Error fetching marketplaces:', error)
+                return []
+            }
+        },
+        enabled: !!connection,
+        staleTime: 30000,
+        gcTime: 60000,
+        refetchOnWindowFocus: false,
+    })
+
+    // Query pour récupérer les ordres actifs d'un marketplace
+    const getOrdersQuery = (marketplacePda: PublicKey | null) => useQuery({
+        queryKey: ['yieldos', 'orders', marketplacePda?.toString(), { cluster: cluster.name }],
+        queryFn: async (): Promise<TradeOrderData[]> => {
+            if (!connection || !marketplacePda) throw new Error('Connection or marketplace not available')
+
+            try {
+                const accounts = await connection.getProgramAccounts(YIELDOS_PROGRAM_ID, {
+                    filters: [
+                        {
+                            memcmp: {
+                                offset: 40, // marketplace field offset in TradeOrder
+                                bytes: marketplacePda.toBase58(),
+                            }
+                        }
+                    ]
+                })
+
+                const orders: TradeOrderData[] = []
+
+                for (const account of accounts) {
+                    try {
+                        const data = account.account.data
+                        let offset = 8 // Skip discriminator
+
+                        // Parse order data
+                        const user = new PublicKey(data.subarray(offset, offset + 32))
+                        offset += 32
+                        const marketplace = new PublicKey(data.subarray(offset, offset + 32))
+                        offset += 32
+                        const orderType = data.readUInt8(offset)
+                        offset += 1
+                        const yieldTokenAmount = Number(data.readBigUInt64LE(offset))
+                        offset += 8
+                        const pricePerToken = Number(data.readBigUInt64LE(offset))
+                        offset += 8
+                        const totalValue = Number(data.readBigUInt64LE(offset))
+                        offset += 8
+                        const filledAmount = Number(data.readBigUInt64LE(offset))
+                        offset += 8
+                        const isActive = data.readUInt8(offset) === 1
+                        offset += 1
+                        const createdAt = Number(data.readBigInt64LE(offset))
+                        offset += 8
+                        const orderId = Number(data.readBigUInt64LE(offset))
+
+                        // Only include active orders
+                        if (isActive && filledAmount < yieldTokenAmount) {
+                            orders.push({
+                                user,
+                                marketplace,
+                                orderType,
+                                yieldTokenAmount,
+                                pricePerToken,
+                                totalValue,
+                                filledAmount,
+                                isActive,
+                                createdAt,
+                                orderId
+                            })
+                        }
+                    } catch (parseError) {
+                        console.warn('Error parsing order account:', parseError)
+                    }
+                }
+
+                return orders.sort((a, b) => {
+                    // Sort sell orders by price (ascending), buy orders by price (descending)
+                    if (a.orderType !== b.orderType) {
+                        return a.orderType - b.orderType // Sell orders first
+                    }
+                    return a.orderType === 1 ? a.pricePerToken - b.pricePerToken : b.pricePerToken - a.pricePerToken
+                })
+            } catch (error) {
+                console.error('Error fetching orders:', error)
+                return []
+            }
+        },
+        enabled: !!connection && !!marketplacePda,
+        staleTime: 15000,
+        gcTime: 60000,
+        refetchOnWindowFocus: false,
+    })
+
+    // Mutation pour créer un marketplace
+    const createMarketplaceMutation = useMutation({
+        mutationFn: async ({ strategyId, tradingFeeBps }: { strategyId: number, tradingFeeBps: number }) => {
+            if (!program || !wallet.publicKey) {
+                throw new Error('Program or wallet not connected')
+            }
+
+            const [strategyPda] = getPDAs.getStrategyPda(strategyId)
+            const [marketplacePda] = getPDAs.getMarketplacePda(strategyPda)
+            const [marketplaceCounterPda] = getPDAs.getMarketplaceCounterPda()
+            const [yieldTokenMintPda] = getPDAs.getYieldTokenMintPda(strategyId)
+
+            // Check if marketplace already exists
+            const existingMarketplace = await connection.getAccountInfo(marketplacePda)
+            if (existingMarketplace) {
+                throw new Error(`Marketplace already exists for strategy ${strategyId}`)
+            }
+
+            // Get strategy to find underlying token
+            const strategyAccount = await connection.getAccountInfo(strategyPda)
+            if (!strategyAccount) throw new Error('Strategy not found')
+
+            const underlyingToken = new PublicKey(strategyAccount.data.subarray(40, 72))
+
+            // Get marketplace counter to determine ID
+            let marketplaceId = 1
+            try {
+                const counterAccount = await connection.getAccountInfo(marketplaceCounterPda)
+                if (counterAccount) {
+                    marketplaceId = Number(counterAccount.data.readBigUInt64LE(8)) + 1
+                }
+            } catch (error) {
+                console.log('Marketplace counter not found, using ID 1')
+            }
+
+            const transaction = await program.methods
+                .createMarketplace(new anchor.BN(strategyId), new anchor.BN(marketplaceId), tradingFeeBps)
+                .accounts({
+                    admin: wallet.publicKey,
+                    strategy: strategyPda,
+                    marketplace: marketplacePda,
+                    marketplaceCounter: marketplaceCounterPda,
+                    yieldTokenMint: yieldTokenMintPda,
+                    underlyingTokenMint: underlyingToken,
+                    systemProgram: SystemProgram.programId,
+                    rent: SYSVAR_RENT_PUBKEY,
+                })
+                .transaction()
+
+            if (!program.provider) {
+                throw new Error('Program provider not available')
+            }
+            const provider = program.provider as anchor.AnchorProvider
+            return await provider.sendAndConfirm(transaction)
+        },
+        onSuccess: (signature) => {
+            if (transactionToast) {
+                transactionToast(signature)
+            }
+            // Refetch will be handled by React Query cache invalidation
+        },
+        onError: (error) => {
+            console.error('Error creating marketplace:', error)
+            throw error
+        }
+    })
+
+    // Mutation pour placer un ordre
+    const placeOrderMutation = useMutation({
+        mutationFn: async ({
+            marketplacePda,
+            orderType,
+            yieldTokenAmount,
+            pricePerToken
+        }: {
+            marketplacePda: PublicKey,
+            orderType: number,
+            yieldTokenAmount: number,
+            pricePerToken: number
+        }) => {
+            if (!program || !wallet.publicKey) {
+                throw new Error('Program or wallet not connected')
+            }
+
+            // Get order counter to determine ID
+            const [orderCounterPda] = getPDAs.getOrderCounterPda()
+            let orderId = 1
+            try {
+                const counterAccount = await connection.getAccountInfo(orderCounterPda)
+                if (counterAccount) {
+                    orderId = Number(counterAccount.data.readBigUInt64LE(8)) + 1
+                }
+            } catch (error) {
+                console.log('Order counter not found, using ID 1')
+            }
+
+            const [orderPda] = getPDAs.getOrderPda(wallet.publicKey, orderId)
+            const [escrowPda] = getPDAs.getEscrowPda(orderPda)
+
+            // Get marketplace data to find token mints
+            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
+            if (!marketplaceAccount) throw new Error('Marketplace not found')
+
+            let offset = 40 // Skip admin + strategy
+            const yieldTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+            offset += 32
+            const underlyingTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+
+            // Get user token accounts
+            const userYieldTokenAccount = await getAssociatedTokenAddress(yieldTokenMint, wallet.publicKey)
+            const userUnderlyingTokenAccount = await getAssociatedTokenAddress(underlyingTokenMint, wallet.publicKey)
+
+            const transaction = await program.methods
+                .placeOrder(new anchor.BN(orderId), orderType, new anchor.BN(yieldTokenAmount), new anchor.BN(pricePerToken))
+                .accounts({
+                    user: wallet.publicKey,
+                    marketplace: marketplacePda,
+                    order: orderPda,
+                    orderCounter: orderCounterPda,
+                    yieldTokenMint,
+                    underlyingTokenMint,
+                    userYieldTokenAccount,
+                    userUnderlyingTokenAccount,
+                    escrowAccount: escrowPda,
+                    tokenProgram: TOKEN_PROGRAM_ID,
+                    systemProgram: SystemProgram.programId,
+                    rent: SYSVAR_RENT_PUBKEY,
+                })
+                .transaction()
+
+            if (!program.provider) {
+                throw new Error('Program provider not available')
+            }
+            const provider = program.provider as anchor.AnchorProvider
+            return await provider.sendAndConfirm(transaction)
+        },
+        onSuccess: (signature) => {
+            if (transactionToast) {
+                transactionToast(signature)
+            }
+        },
+        onError: (error) => {
+            console.error('Error placing order:', error)
+            throw error
+        }
+    })
+
+    // Mutation pour annuler un ordre
+    const cancelOrderMutation = useMutation({
+        mutationFn: async ({ orderId, marketplacePda }: { orderId: number, marketplacePda: PublicKey }) => {
+            if (!program || !wallet.publicKey) {
+                throw new Error('Program or wallet not connected')
+            }
+
+            const [orderPda] = getPDAs.getOrderPda(wallet.publicKey, orderId)
+            const [escrowPda] = getPDAs.getEscrowPda(orderPda)
+
+            // Get order data to determine token account
+            const orderAccount = await connection.getAccountInfo(orderPda)
+            if (!orderAccount) throw new Error('Order not found')
+
+            // Parse order type to determine which token account to use
+            const orderType = orderAccount.data.readUInt8(72) // orderType field offset
+
+            // Get marketplace data to find token mints
+            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
+            if (!marketplaceAccount) throw new Error('Marketplace not found')
+
+            let offset = 40
+            const yieldTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+            offset += 32
+            const underlyingTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+
+            // Determine user token account based on order type
+            const tokenMint = orderType === 1 ? yieldTokenMint : underlyingTokenMint // 1 = sell order
+            const userTokenAccount = await getAssociatedTokenAddress(tokenMint, wallet.publicKey)
+
+            const transaction = await program.methods
+                .cancelOrder(new anchor.BN(orderId))
+                .accounts({
+                    user: wallet.publicKey,
+                    marketplace: marketplacePda,
+                    order: orderPda,
+                    escrowAccount: escrowPda,
+                    userTokenAccount,
+                    tokenProgram: TOKEN_PROGRAM_ID,
+                })
+                .transaction()
+
+            if (!program.provider) {
+                throw new Error('Program provider not available')
+            }
+            const provider = program.provider as anchor.AnchorProvider
+            return await provider.sendAndConfirm(transaction)
+        },
+        onSuccess: (signature) => {
+            if (transactionToast) {
+                transactionToast(signature)
+            }
+        },
+        onError: (error) => {
+            console.error('Error canceling order:', error)
+            throw error
+        }
+    })
+
+    // Mutation pour exécuter un trade entre deux ordres
+    const executeTradesMutation = useMutation({
+        mutationFn: async ({
+            buyOrderPda,
+            sellOrderPda,
+            tradeAmount,
+            marketplacePda
+        }: {
+            buyOrderPda: PublicKey,
+            sellOrderPda: PublicKey,
+            tradeAmount: number,
+            marketplacePda: PublicKey
+        }) => {
+            if (!program || !wallet.publicKey) {
+                throw new Error('Program or wallet not connected')
+            }
+
+            // Get escrow PDAs
+            const [buyOrderEscrowPda] = getPDAs.getEscrowPda(buyOrderPda)
+            const [sellOrderEscrowPda] = getPDAs.getEscrowPda(sellOrderPda)
+
+            // Get marketplace data to find token mints
+            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
+            if (!marketplaceAccount) throw new Error('Marketplace not found')
+
+            let offset = 40
+            const yieldTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+            offset += 32
+            const underlyingTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+
+            // Get order data to find users
+            const buyOrderAccount = await connection.getAccountInfo(buyOrderPda)
+            const sellOrderAccount = await connection.getAccountInfo(sellOrderPda)
+            if (!buyOrderAccount || !sellOrderAccount) throw new Error('Orders not found')
+
+            const buyerPubkey = new PublicKey(buyOrderAccount.data.subarray(8, 40))
+            const sellerPubkey = new PublicKey(sellOrderAccount.data.subarray(8, 40))
+
+            // Get user token accounts
+            const buyerYieldTokenAccount = await getAssociatedTokenAddress(yieldTokenMint, buyerPubkey)
+            const buyerUnderlyingTokenAccount = await getAssociatedTokenAddress(underlyingTokenMint, buyerPubkey)
+            const sellerUnderlyingTokenAccount = await getAssociatedTokenAddress(underlyingTokenMint, sellerPubkey)
+
+            // Fee collection account (marketplace admin)
+            const marketplaceAdmin = new PublicKey(marketplaceAccount.data.subarray(8, 40))
+            const feeCollectionAccount = await getAssociatedTokenAddress(underlyingTokenMint, marketplaceAdmin)
+
+            const transaction = await program.methods
+                .executeTrade(new anchor.BN(tradeAmount))
+                .accounts({
+                    executor: wallet.publicKey,
+                    marketplace: marketplacePda,
+                    buyOrder: buyOrderPda,
+                    sellOrder: sellOrderPda,
+                    buyOrderEscrow: buyOrderEscrowPda,
+                    sellOrderEscrow: sellOrderEscrowPda,
+                    buyerYieldTokenAccount,
+                    buyerUnderlyingTokenAccount,
+                    sellerUnderlyingTokenAccount,
+                    feeCollectionAccount,
+                    tokenProgram: TOKEN_PROGRAM_ID,
+                })
+                .transaction()
+
+            if (!program.provider) {
+                throw new Error('Program provider not available')
+            }
+            const provider = program.provider as anchor.AnchorProvider
+            return await provider.sendAndConfirm(transaction)
+        },
+        onSuccess: (signature) => {
+            if (transactionToast) {
+                transactionToast(signature)
+            }
+        },
+        onError: (error) => {
+            console.error('Error executing trade:', error)
+            throw error
+        }
+    })
+
+    return {
+        marketplacesQuery,
+        getOrdersQuery,
+        createMarketplaceMutation,
+        placeOrderMutation,
+        cancelOrderMutation,
+        executeTradesMutation,
+        getPDAs
     }
 } 
