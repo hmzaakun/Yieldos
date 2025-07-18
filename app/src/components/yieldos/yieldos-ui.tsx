@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import Link from 'next/link'
 
 // Composant pour afficher une liste de stratégies
 export function StrategiesList() {
@@ -18,13 +19,20 @@ export function StrategiesList() {
 
     if (!wallet.connected) {
         return (
-            <Card>
+            <Card className="border-amber-200 dark:border-amber-800 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950 dark:to-orange-950">
                 <CardHeader>
-                    <CardTitle>Strategies</CardTitle>
-                    <CardDescription>Connect your wallet to view available strategies</CardDescription>
+                    <CardTitle className="flex items-center space-x-2 text-amber-700 dark:text-amber-300">
+                        <span>🎯</span>
+                        <span>Strategies</span>
+                    </CardTitle>
+                    <CardDescription className="text-amber-600 dark:text-amber-400">
+                        Connect your wallet to view available strategies
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <Button disabled>Connect Wallet</Button>
+                    <Button disabled className="bg-gradient-to-r from-amber-500 to-orange-500 text-white">
+                        🔌 Connect Wallet
+                    </Button>
                 </CardContent>
             </Card>
         )
@@ -32,26 +40,53 @@ export function StrategiesList() {
 
     if (strategiesQuery.isLoading) {
         return (
-            <Card>
+            <Card className="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950 border-blue-200 dark:border-blue-800">
                 <CardHeader>
-                    <CardTitle>Strategies</CardTitle>
-                    <CardDescription>Loading strategies...</CardDescription>
+                    <CardTitle className="flex items-center space-x-2 text-blue-700 dark:text-blue-300">
+                        <span>🔄</span>
+                        <span>Loading Strategies</span>
+                    </CardTitle>
+                    <CardDescription className="text-blue-600 dark:text-blue-400">
+                        Fetching the latest yield strategies from the blockchain...
+                    </CardDescription>
                 </CardHeader>
+                <CardContent>
+                    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        {[...Array(3)].map((_, i) => (
+                            <div key={i} className="animate-pulse">
+                                <div className="h-48 bg-gradient-to-br from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-600 rounded-xl"></div>
+                            </div>
+                        ))}
+                    </div>
+                </CardContent>
             </Card>
         )
     }
 
     if (strategiesQuery.error) {
         return (
-            <Card>
+            <Card className="border-red-200 dark:border-red-800 bg-gradient-to-br from-red-50 to-pink-50 dark:from-red-950 dark:to-pink-950">
                 <CardHeader>
-                    <CardTitle>Strategies</CardTitle>
-                    <CardDescription>Error loading strategies</CardDescription>
+                    <CardTitle className="flex items-center space-x-2 text-red-700 dark:text-red-300">
+                        <span>⚠️</span>
+                        <span>Error Loading Strategies</span>
+                    </CardTitle>
+                    <CardDescription className="text-red-600 dark:text-red-400">
+                        Failed to load strategies from the blockchain
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <p className="text-red-500">
-                        {strategiesQuery.error instanceof Error ? strategiesQuery.error.message : 'Unknown error'}
-                    </p>
+                    <div className="space-y-4">
+                        <p className="text-red-600 dark:text-red-400">
+                            {strategiesQuery.error instanceof Error ? strategiesQuery.error.message : 'Unknown error occurred'}
+                        </p>
+                        <Button
+                            onClick={() => strategiesQuery.refetch()}
+                            className="bg-gradient-to-r from-red-500 to-pink-500 hover:from-red-600 hover:to-pink-600 text-white"
+                        >
+                            🔄 Retry Loading
+                        </Button>
+                    </div>
                 </CardContent>
             </Card>
         )
@@ -60,22 +95,34 @@ export function StrategiesList() {
     const strategies = strategiesQuery.data || []
 
     return (
-        <div className="space-y-4">
-            <Card>
+        <div className="space-y-6">
+            <Card className="bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 border-green-200 dark:border-green-800 shadow-lg">
                 <CardHeader>
-                    <CardTitle>Available Strategies</CardTitle>
-                    <CardDescription>Choose a strategy to start earning yield on your tokens</CardDescription>
+                    <CardTitle className="flex items-center space-x-2 text-green-700 dark:text-green-300">
+                        <span>🚀</span>
+                        <span>Available Strategies</span>
+                        <span className="px-2 py-1 bg-green-100 dark:bg-green-900 text-xs font-medium rounded-full">
+                            {strategies.length} Active
+                        </span>
+                    </CardTitle>
+                    <CardDescription className="text-green-600 dark:text-green-400">
+                        Click on any strategy to view details and start earning yield on your tokens
+                    </CardDescription>
                 </CardHeader>
                 <CardContent>
                     {strategies.length === 0 ? (
-                        <p className="text-muted-foreground">
-                            No strategies available yet.
-                            {wallet.publicKey?.toString() === '7JS6XpnoEJDcrzUzg3K7dnpzK2pxYJAdQr5CaREzEHNt' && (
-                                <span> Create one using the form above!</span>
-                            )}
-                        </p>
+                        <div className="text-center py-12 space-y-4">
+                            <div className="text-6xl">📭</div>
+                            <h3 className="text-lg font-semibold text-green-700 dark:text-green-300">No Strategies Available</h3>
+                            <p className="text-green-600 dark:text-green-400">
+                                No strategies have been created yet.
+                                {wallet.publicKey?.toString() === '7JS6XpnoEJDcrzUzg3K7dnpzK2pxYJAdQr5CaREzEHNt' && (
+                                    <span className="block mt-2 font-medium">As an admin, you can create the first strategy above! 🎯</span>
+                                )}
+                            </p>
+                        </div>
                     ) : (
-                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
                             {strategies.map((strategy) => (
                                 <StrategyCard
                                     key={strategy.pubkey.toString()}
@@ -334,45 +381,92 @@ export function StrategyCard({ strategyId, strategyData }: {
     }
 
     return (
-        <Card>
-            <CardHeader>
-                <CardTitle>{displayInfo.name}</CardTitle>
-                <CardDescription>
-                    {strategyData ? 'Active on-chain strategy' : 'High-yield strategy for earning passive income'}
-                </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-                <div className="space-y-2">
-                    <div className="flex justify-between">
-                        <span className="text-sm font-medium">APY:</span>
-                        <span className="text-sm text-green-600">
-                            {(displayInfo.apy / 100).toFixed(2)}%
-                        </span>
+        <Card className="bg-gradient-to-br from-white to-gray-50 dark:from-gray-900 dark:to-gray-800 border-gray-200 dark:border-gray-700 hover:shadow-lg transition-all duration-200 hover:border-blue-300 dark:hover:border-blue-700">
+            <CardHeader className="cursor-pointer" onClick={() => window.location.href = `/strategies/${strategyId}`}>
+                <div className="flex items-center space-x-3 mb-2">
+                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-xl font-bold text-white shadow-md">
+                        {strategyId}
                     </div>
-                    <div className="flex justify-between">
-                        <span className="text-sm font-medium">Total Deposited:</span>
-                        <span className="text-sm">{displayInfo.totalLocked.toLocaleString()} tokens</span>
+                    <div className="flex-1">
+                        <CardTitle className="text-lg hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                            {displayInfo.name}
+                        </CardTitle>
+                        <CardDescription>
+                            {strategyData ? 'Live on Solana blockchain' : 'High-yield strategy for earning passive income'}
+                        </CardDescription>
                     </div>
-                    <div className="flex justify-between">
-                        <span className="text-sm font-medium">Status:</span>
-                        <span className={`text-sm ${strategyInfo?.isActive ? 'text-green-600' : 'text-red-600'}`}>
+                    <div className="flex items-center space-x-2">
+                        {strategyInfo?.isActive ? (
+                            <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                        ) : (
+                            <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
+                        )}
+                        <span className="text-xs text-gray-500">
                             {strategyInfo?.isActive ? 'Active' : 'Inactive'}
                         </span>
                     </div>
-                    <div className="flex justify-between">
+                </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+                {/* Métriques colorées */}
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="text-center p-3 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 rounded-lg border border-green-200 dark:border-green-800">
+                        <div className="text-sm text-green-600 dark:text-green-400 font-medium">APY</div>
+                        <div className="text-xl font-bold text-green-700 dark:text-green-300">
+                            {(displayInfo.apy / 100).toFixed(2)}%
+                        </div>
+                    </div>
+                    <div className="text-center p-3 bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-950 dark:to-cyan-950 rounded-lg border border-blue-200 dark:border-blue-800">
+                        <div className="text-sm text-blue-600 dark:text-blue-400 font-medium">TVL</div>
+                        <div className="text-xl font-bold text-blue-700 dark:text-blue-300">
+                            {(displayInfo.totalLocked / 1e9).toFixed(1)}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Position et Status */}
+                <div className="space-y-2">
+                    <div className="flex justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded">
                         <span className="text-sm font-medium">Your Position:</span>
-                        <span className="text-sm">0.00 tokens</span>
+                        <span className="text-sm font-bold text-purple-600 dark:text-purple-400">
+                            {userPosition?.deposited_amount ? (userPosition.deposited_amount / 1e9).toFixed(4) + ' SOL' : '0.00 SOL'}
+                        </span>
                     </div>
                     {strategyData && (
-                        <div className="flex justify-between">
+                        <div className="flex justify-between p-2 bg-gray-50 dark:bg-gray-800 rounded">
                             <span className="text-sm font-medium">Strategy ID:</span>
                             <span className="text-sm font-mono">#{strategyInfo?.strategyId || strategyId}</span>
                         </div>
                     )}
                 </div>
 
-                <div className="space-y-2">
-                    <Label htmlFor={`deposit-${strategyId}`}>Deposit Amount</Label>
+                {/* Affichage des soldes */}
+                {(userPosition?.deposited_amount > 0 || yieldTokenBalance > 0) && (
+                    <div className="p-3 bg-gradient-to-r from-purple-50 to-pink-50 dark:from-purple-950 dark:to-pink-950 rounded-lg border border-purple-200 dark:border-purple-800">
+                        {userPosition?.deposited_amount > 0 && (
+                            <div className="flex justify-between text-sm">
+                                <span className="text-purple-600 dark:text-purple-400">💰 Deposited:</span>
+                                <span className="font-semibold text-purple-700 dark:text-purple-300">
+                                    {(userPosition.deposited_amount / 1e9).toFixed(4)} SOL
+                                </span>
+                            </div>
+                        )}
+                        {yieldTokenBalance > 0 && (
+                            <div className="flex justify-between text-sm mt-1">
+                                <span className="text-purple-600 dark:text-purple-400">🎯 Yield tokens:</span>
+                                <span className="font-semibold text-purple-700 dark:text-purple-300">
+                                    {(yieldTokenBalance / 1e9).toFixed(4)} YLD
+                                </span>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Deposit Section */}
+                <div className="space-y-2 p-3 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950 dark:to-emerald-950 rounded-lg border border-green-200 dark:border-green-800">
+                    <Label htmlFor={`deposit-${strategyId}`} className="text-sm font-medium text-green-700 dark:text-green-300">
+                        💰 Deposit Amount (SOL)
+                    </Label>
                     <div className="flex space-x-2">
                         <Input
                             id={`deposit-${strategyId}`}
@@ -380,30 +474,24 @@ export function StrategyCard({ strategyId, strategyData }: {
                             placeholder="0.0"
                             value={depositAmount}
                             onChange={(e) => setDepositAmount(e.target.value)}
+                            className="border-green-200 dark:border-green-800"
+                            step="0.001"
                         />
                         <Button
                             onClick={handleDeposit}
                             disabled={!depositAmount || depositMutation.isPending}
+                            className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white"
                         >
-                            {depositMutation.isPending ? 'Depositing...' : 'Deposit'}
+                            {depositMutation.isPending ? '🔄' : '💰'}
                         </Button>
                     </div>
                 </div>
 
-                <div className="space-y-2">
-                    {/* Affichage des soldes */}
-                    {(userPosition?.deposited_amount > 0 || yieldTokenBalance > 0) && (
-                        <div className="p-2 bg-green-50 rounded text-xs text-green-700 dark:bg-green-950 dark:text-green-300 space-y-1">
-                            {userPosition?.deposited_amount > 0 && (
-                                <div>💰 Deposited: {tokenInfo?.isWSol ? (userPosition.deposited_amount / 1e9).toFixed(4) + ' SOL' : userPosition.deposited_amount + ' tokens'}</div>
-                            )}
-                            {yieldTokenBalance > 0 && (
-                                <div>🎯 Yield tokens: {(yieldTokenBalance / 1e9).toFixed(4)}</div>
-                            )}
-                        </div>
-                    )}
-
-                    <Label htmlFor={`withdraw-${strategyId}`}>Withdraw Amount</Label>
+                {/* Withdraw Section */}
+                <div className="space-y-2 p-3 bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-950 dark:to-red-950 rounded-lg border border-orange-200 dark:border-orange-800">
+                    <Label htmlFor={`withdraw-${strategyId}`} className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                        💸 Withdraw Amount (SOL)
+                    </Label>
                     <div className="flex space-x-2">
                         <Input
                             id={`withdraw-${strategyId}`}
@@ -411,14 +499,15 @@ export function StrategyCard({ strategyId, strategyData }: {
                             placeholder="0.0"
                             value={withdrawAmount}
                             onChange={(e) => setWithdrawAmount(e.target.value)}
+                            className="border-orange-200 dark:border-orange-800"
                         />
                         <Button
                             onClick={handleWithdraw}
                             variant="outline"
                             disabled={!withdrawAmount || withdrawMutation.isPending}
-                            size="sm"
+                            className="border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-300"
                         >
-                            {withdrawMutation.isPending ? 'Withdrawing...' : 'Withdraw'}
+                            {withdrawMutation.isPending ? '🔄' : '💸'}
                         </Button>
                     </div>
 
@@ -427,15 +516,23 @@ export function StrategyCard({ strategyId, strategyData }: {
                         variant="destructive"
                         size="sm"
                         disabled={!userPosition || userPosition.deposited_amount <= 0 || withdrawMutation.isPending}
-                        className="w-full"
+                        className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
                     >
-                        {withdrawMutation.isPending ? 'Withdrawing...' :
+                        {withdrawMutation.isPending ? '🔄 Processing...' :
                             userPosition && userPosition.deposited_amount > 0 ?
-                                `Withdraw All (${tokenInfo?.isWSol ? (userPosition.deposited_amount / 1e9).toFixed(4) + ' SOL' : userPosition.deposited_amount + ' tokens'})` :
-                                'No position'
+                                `💸 Withdraw All (${(userPosition.deposited_amount / 1e9).toFixed(4)} SOL)` :
+                                'No position to withdraw'
                         }
                     </Button>
                 </div>
+
+                {/* View Details Button */}
+                <Button
+                    onClick={() => window.location.href = `/strategies/${strategyId}`}
+                    className="w-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white"
+                >
+                    📊 View Full Details →
+                </Button>
             </CardContent>
         </Card>
     )
