@@ -1373,26 +1373,19 @@ export function useMarketplace() {
             }
 
             const [orderPda] = getPDAs.getOrderPda(wallet.publicKey, orderId)
+
+            // Récupérer les token mints depuis les données du marketplace
+            const marketplaceAccount = await connection.getAccountInfo(marketplacePda)
+            if (!marketplaceAccount) throw new Error('Marketplace not found')
+
+            // Parser les token mints depuis le marketplace (structure: admin + strategy + yieldTokenMint + underlyingTokenMint)
+            let offset = 40 // Skip discriminator(8) + admin(32)
+            offset += 32 // Skip strategy
+            const yieldTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+            offset += 32
+            const underlyingTokenMint = new PublicKey(marketplaceAccount.data.subarray(offset, offset + 32))
+
             const [escrowPda] = getPDAs.getEscrowPda(orderPda)
-
-            // Calculer les PDAs pour les token mints
-            const [strategyPda] = getPDAs.getStrategyPda(strategyId)
-            const [yieldTokenMint] = getPDAs.getYieldTokenMintPda(strategyId)
-
-            // Récupérer l'underlying token depuis la stratégie
-            let underlyingTokenMint: PublicKey
-            try {
-                const strategyAccount = await connection.getAccountInfo(strategyPda)
-                if (!strategyAccount) {
-                    throw new Error(`Strategy ${strategyId} not found`)
-                }
-                // L'underlying token est à l'offset 40 (discriminator 8 + admin 32)
-                const underlyingTokenBytes = strategyAccount.data.subarray(40, 72)
-                underlyingTokenMint = new PublicKey(underlyingTokenBytes)
-            } catch (parseError) {
-                console.warn('Failed to parse underlying token, using WSOL:', parseError)
-                underlyingTokenMint = new PublicKey('So11111111111111111111111111111111111111112')
-            }
 
             // Get user token accounts
             const userYieldTokenAccount = await getAssociatedTokenAddress(yieldTokenMint, wallet.publicKey)

@@ -32,6 +32,15 @@ export function MarketplaceFeature() {
     const [userYieldTokenBalance, setUserYieldTokenBalance] = useState<number>(0)
     const [loadingBalance, setLoadingBalance] = useState(false)
 
+    // État pour le balance des underlying tokens de l'utilisateur (pour buy orders)
+    const [userUnderlyingTokenBalance, setUserUnderlyingTokenBalance] = useState<number>(0)
+    const [loadingUnderlyingBalance, setLoadingUnderlyingBalance] = useState(false)
+    const [underlyingTokenInfo, setUnderlyingTokenInfo] = useState<{
+        mint: string,
+        symbol: string,
+        decimals: number
+    } | null>(null)
+
     // Fonction pour récupérer le balance des yield tokens
     const fetchUserYieldTokenBalance = async () => {
         if (!wallet.publicKey || !selectedStrategy) {
@@ -63,9 +72,104 @@ export function MarketplaceFeature() {
         }
     }
 
-    // Charger le balance quand la stratégie change
+    // Fonction pour récupérer le balance des underlying tokens
+    const fetchUserUnderlyingTokenBalance = async () => {
+        if (!wallet.publicKey || !selectedStrategy) {
+            setUserUnderlyingTokenBalance(0)
+            return
+        }
+
+        setLoadingUnderlyingBalance(true)
+        try {
+            // Calculer le PDA de la stratégie pour récupérer l'underlying token
+            const [strategyPda] = getPDAs.getStrategyPda(selectedStrategy)
+            const strategyAccount = await connection.getAccountInfo(strategyPda)
+
+            if (!strategyAccount) {
+                setUserUnderlyingTokenBalance(0)
+                return
+            }
+
+            // Récupérer l'underlying token depuis la stratégie
+            let underlyingTokenMint: PublicKey
+            try {
+                const underlyingTokenBytes = strategyAccount.data.subarray(40, 72)
+                underlyingTokenMint = new PublicKey(underlyingTokenBytes)
+            } catch (parseError) {
+                // Fallback vers WSOL
+                underlyingTokenMint = new PublicKey('So11111111111111111111111111111111111111112')
+            }
+
+            // Récupérer les informations du token
+            let tokenInfo = {
+                mint: underlyingTokenMint.toString(),
+                symbol: 'Unknown',
+                decimals: 9
+            }
+
+            // Si c'est WSOL, on peut utiliser le balance SOL natif + WSOL
+            if (underlyingTokenMint.toString() === 'So11111111111111111111111111111111111111112') {
+                tokenInfo.symbol = 'SOL'
+                tokenInfo.decimals = 9
+
+                const solBalance = await connection.getBalance(wallet.publicKey)
+
+                // Aussi récupérer le balance WSOL s'il existe
+                try {
+                    const userWsolAccount = await getAssociatedTokenAddress(underlyingTokenMint, wallet.publicKey)
+                    const wsolAccount = await connection.getTokenAccountBalance(userWsolAccount)
+                    const wsolBalance = wsolAccount.value ? Number(wsolAccount.value.amount) : 0
+
+                    const totalBalance = (solBalance + wsolBalance) / LAMPORTS_PER_SOL
+                    setUserUnderlyingTokenBalance(totalBalance)
+                } catch (wsolError) {
+                    setUserUnderlyingTokenBalance(solBalance / LAMPORTS_PER_SOL)
+                }
+            } else {
+                console.log('❌ Strategy uses non-SOL token:', underlyingTokenMint.toString())
+                console.log('❌ This strategy should be deleted or reconfigured to use SOL/WSOL')
+
+                // Pour debug: afficher quand même le balance du token
+                const mintStr = underlyingTokenMint.toString()
+                if (mintStr.startsWith('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v')) {
+                    tokenInfo.symbol = 'USDC'
+                    tokenInfo.decimals = 6
+                } else if (mintStr.startsWith('Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB')) {
+                    tokenInfo.symbol = 'USDT'
+                    tokenInfo.decimals = 6
+                } else {
+                    tokenInfo.symbol = `Token (${mintStr.slice(0, 8)}...)`
+                }
+
+                try {
+                    const userTokenAccount = await getAssociatedTokenAddress(underlyingTokenMint, wallet.publicKey)
+                    const tokenAccount = await connection.getTokenAccountBalance(userTokenAccount)
+                    if (tokenAccount.value) {
+                        setUserUnderlyingTokenBalance(Number(tokenAccount.value.amount) / Math.pow(10, tokenInfo.decimals))
+                    } else {
+                        setUserUnderlyingTokenBalance(0)
+                    }
+                } catch (error) {
+                    setUserUnderlyingTokenBalance(0)
+                }
+            }
+
+            setUnderlyingTokenInfo(tokenInfo)
+        } catch (error) {
+            console.error('Error fetching underlying token balance:', error)
+            setUserUnderlyingTokenBalance(0)
+            setUnderlyingTokenInfo(null)
+        } finally {
+            setLoadingUnderlyingBalance(false)
+        }
+    }
+
+    // Charger les balances quand la stratégie change
     useEffect(() => {
+        // Réinitialiser les infos du token
+        setUnderlyingTokenInfo(null)
         fetchUserYieldTokenBalance()
+        fetchUserUnderlyingTokenBalance()
     }, [wallet.publicKey, selectedStrategy])
 
     // Get marketplace for selected strategy
@@ -230,6 +334,7 @@ export function MarketplaceFeature() {
             setBuyAmount('')
             setBuyPrice('')
             ordersQuery.refetch()
+            fetchUserUnderlyingTokenBalance() // Refresh balance after buy order
         } catch (error) {
             console.error('Error creating buy order:', error)
         }
@@ -249,6 +354,7 @@ export function MarketplaceFeature() {
             })
             ordersQuery.refetch()
             fetchUserYieldTokenBalance() // Refresh balance after cancel order
+            fetchUserUnderlyingTokenBalance() // Refresh underlying balance too
         } catch (error) {
             console.error('Error canceling order:', error)
         }
@@ -608,12 +714,22 @@ export function MarketplaceFeature() {
                                         <div className="space-y-2">
                                             <div className="flex justify-between text-sm">
                                                 <span>Total Value:</span>
-                                                <span>{(Number(sellAmount || 0) * Number(sellPrice || 0)).toFixed(6)} tokens</span>
+                                                <span>{(Number(sellAmount || 0) * Number(sellPrice || 0)).toFixed(underlyingTokenInfo?.decimals || 6)} {underlyingTokenInfo?.symbol || 'tokens'}</span>
                                             </div>
+                                            {Number(sellAmount || 0) > userYieldTokenBalance && (
+                                                <div className="text-xs text-red-500">
+                                                    Insufficient balance. You need {Number(sellAmount || 0).toFixed(6)} YLD tokens but only have {userYieldTokenBalance.toFixed(6)} YLD tokens.
+                                                </div>
+                                            )}
                                         </div>
                                         <Button
                                             onClick={handleCreateSellOrder}
-                                            disabled={!sellAmount || !sellPrice || placeOrderMutation.isPending}
+                                            disabled={
+                                                !sellAmount ||
+                                                !sellPrice ||
+                                                placeOrderMutation.isPending ||
+                                                Number(sellAmount || 0) > userYieldTokenBalance
+                                            }
                                             className="w-full"
                                         >
                                             {placeOrderMutation.isPending ? 'Creating...' : 'Create Sell Order'}
@@ -628,7 +744,25 @@ export function MarketplaceFeature() {
                                     </CardHeader>
                                     <CardContent className="space-y-4">
                                         <div className="space-y-2">
-                                            <Label htmlFor="buy-amount">Amount (YLD tokens)</Label>
+                                            <div className="flex justify-between items-center">
+                                                <Label htmlFor="buy-amount">Amount (YLD tokens)</Label>
+                                                <div className="text-sm text-gray-500">
+                                                    {loadingUnderlyingBalance ? 'Loading...' : `Balance: ${userUnderlyingTokenBalance.toFixed(underlyingTokenInfo?.decimals || 6)} ${underlyingTokenInfo?.symbol || 'tokens'}`}
+                                                    {userUnderlyingTokenBalance > 0 && buyPrice && Number(buyPrice) > 0 && (
+                                                        <Button
+                                                            variant="link"
+                                                            size="sm"
+                                                            className="ml-2 h-auto p-0 text-xs"
+                                                            onClick={() => {
+                                                                const maxAmount = userUnderlyingTokenBalance / Number(buyPrice)
+                                                                setBuyAmount(maxAmount.toFixed(6))
+                                                            }}
+                                                        >
+                                                            Max
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </div>
                                             <Input
                                                 id="buy-amount"
                                                 type="number"
@@ -652,12 +786,22 @@ export function MarketplaceFeature() {
                                         <div className="space-y-2">
                                             <div className="flex justify-between text-sm">
                                                 <span>Total Cost:</span>
-                                                <span>{(Number(buyAmount || 0) * Number(buyPrice || 0)).toFixed(6)} tokens</span>
+                                                <span>{(Number(buyAmount || 0) * Number(buyPrice || 0)).toFixed(underlyingTokenInfo?.decimals || 6)} {underlyingTokenInfo?.symbol || 'tokens'}</span>
                                             </div>
+                                            {(Number(buyAmount || 0) * Number(buyPrice || 0)) > userUnderlyingTokenBalance && (
+                                                <div className="text-xs text-red-500">
+                                                    Insufficient balance. You need {(Number(buyAmount || 0) * Number(buyPrice || 0)).toFixed(underlyingTokenInfo?.decimals || 6)} {underlyingTokenInfo?.symbol || 'tokens'} but only have {userUnderlyingTokenBalance.toFixed(underlyingTokenInfo?.decimals || 6)} {underlyingTokenInfo?.symbol || 'tokens'}.
+                                                </div>
+                                            )}
                                         </div>
                                         <Button
                                             onClick={handleCreateBuyOrder}
-                                            disabled={!buyAmount || !buyPrice || placeOrderMutation.isPending}
+                                            disabled={
+                                                !buyAmount ||
+                                                !buyPrice ||
+                                                placeOrderMutation.isPending ||
+                                                (Number(buyAmount || 0) * Number(buyPrice || 0)) > userUnderlyingTokenBalance
+                                            }
                                             variant="outline"
                                             className="w-full"
                                         >
