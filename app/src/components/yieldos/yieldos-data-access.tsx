@@ -1064,6 +1064,7 @@ export function useYieldosStrategy({ strategyId }: { strategyId: number }) {
 
 // Types pour le marketplace
 export interface MarketplaceData {
+    pubkey: PublicKey
     admin: PublicKey
     strategy: PublicKey
     yieldTokenMint: PublicKey
@@ -1202,6 +1203,7 @@ export function useMarketplace() {
                         }
 
                         const marketplaceData = {
+                            pubkey: account.pubkey,
                             admin,
                             strategy,
                             yieldTokenMint,
