@@ -217,7 +217,64 @@ export function useYieldosProgram() {
                                     const coder = new anchor.BorshAccountsCoder(YieldosIDL as anchor.Idl)
                                     decodedData = coder.decode('strategy', accountInfo.data)
                                 } catch (decodeError) {
-                                    console.warn(`Failed to decode strategy ${i}:`, decodeError)
+                                    console.warn(`Failed to decode strategy ${i} with Anchor, trying manual parsing:`, decodeError)
+                                }
+                            }
+
+                            // Si Anchor decode a échoué, essayer le parsing manuel
+                            if (!decodedData) {
+                                try {
+                                    const data = accountInfo.data
+                                    let offset = 8 // Skip discriminator
+
+                                    // Skip admin (32), underlying_token (32), yield_token_mint (32)
+                                    offset += 96
+
+                                    // Parse name (4 bytes length + string data)
+                                    const nameLength = data.readUInt32LE(offset)
+                                    offset += 4
+                                    const nameBytes = data.subarray(offset, offset + nameLength)
+                                    const name = new TextDecoder().decode(nameBytes)
+                                    offset += nameLength
+
+                                    // Parse APY (8 bytes u64)
+                                    const apyLow = data.readUInt32LE(offset)
+                                    const apyHigh = data.readUInt32LE(offset + 4)
+                                    const apy = apyHigh * 0x100000000 + apyLow
+                                    offset += 8
+
+                                    // Parse total_deposits (8 bytes u64)
+                                    const totalDepositsLow = data.readUInt32LE(offset)
+                                    const totalDepositsHigh = data.readUInt32LE(offset + 4)
+                                    const totalDeposits = totalDepositsHigh * 0x100000000 + totalDepositsLow
+                                    offset += 8
+
+                                    // Parse is_active (1 byte bool)
+                                    const isActive = data[offset] !== 0
+                                    offset += 1
+
+                                    // Skip created_at (8 bytes)
+                                    offset += 8
+
+                                    // Skip total_yield_tokens_minted (8 bytes)
+                                    offset += 8
+
+                                    // Parse strategy_id (8 bytes u64)
+                                    const strategyIdLow = data.readUInt32LE(offset)
+                                    const strategyIdHigh = data.readUInt32LE(offset + 4)
+                                    const strategyId = strategyIdHigh * 0x100000000 + strategyIdLow
+
+                                    decodedData = {
+                                        name,
+                                        apy,
+                                        totalDeposits,
+                                        isActive,
+                                        strategyId
+                                    }
+
+                                    console.log(`✅ Manually parsed strategy ${i}:`, { name, apy, totalDeposits, isActive })
+                                } catch (parseError) {
+                                    console.warn(`Failed to manually parse strategy ${i}:`, parseError)
                                 }
                             }
 
@@ -1688,5 +1745,41 @@ export function useMarketplace() {
         executeTradesMutation,
         getMarketplaceByStrategy,
         getPDAs
+    }
+}
+
+// Hook principal qui regroupe tous les hooks Yieldos pour le dashboard
+export function useYieldos() {
+    const { strategiesQuery, userPositionsQuery } = useYieldosProgram()
+    const { marketplacesQuery } = useMarketplace()
+
+    // Pour les ordres utilisateur, on va chercher dans tous les marketplaces
+    const ordersQuery = useQuery({
+        queryKey: ['yieldos', 'userOrders'],
+        queryFn: async () => {
+            // Pour l'instant, on retourne un tableau vide
+            // TODO: Implémenter la récupération des ordres utilisateur
+            return []
+        },
+        enabled: false // Désactivé pour l'instant
+    })
+
+    // Pour les stats du protocole
+    const protocolStatsQuery = useQuery({
+        queryKey: ['yieldos', 'protocolStats'],
+        queryFn: async () => {
+            // Pour l'instant, on retourne null
+            // TODO: Implémenter les stats du protocole
+            return null
+        },
+        enabled: false // Désactivé pour l'instant
+    })
+
+    return {
+        strategiesQuery,
+        marketplacesQuery,
+        userPositionsQuery,
+        ordersQuery,
+        protocolStatsQuery
     }
 } 
